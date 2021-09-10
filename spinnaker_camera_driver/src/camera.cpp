@@ -309,6 +309,10 @@ void Camera::setNewConfiguration(SpinnakerConfig& config, const uint32_t& level)
       setProperty(node_map_, "DeviceLinkThroughputLimit", config.device_link_throughput_limit);
     }
     setProperty(node_map_, "DefectCorrectStaticEnable", config.defect_correct_static_enable);
+
+    setProperty(node_map_, "ImageCompressionMode", config.image_compression_mode);
+    setProperty(node_map_, "AdaptiveCompressionEnable", config.adaptive_compression_enable);
+    setProperty(node_map_, "MaxDatarateThreshold", config.max_datarate_threshold);
   }
   catch (const Spinnaker::Exception& e)
   {
