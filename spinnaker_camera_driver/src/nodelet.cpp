@@ -265,6 +265,7 @@ private:
     int serial = 0;
 
     pnh.param<bool>("reset_on_start", reset_on_start_, false);
+    pnh.param<bool>("shutdown_on_error", shutdown_on_error_, false);
 
     XmlRpc::XmlRpcValue serial_xmlrpc;
     pnh.getParam("serial", serial_xmlrpc);
@@ -443,7 +444,8 @@ private:
       STOPPED,
       DISCONNECTED,
       CONNECTED,
-      STARTED
+      STARTED,
+      SHUTDOWN,
     };
 
     State state = DISCONNECTED;
@@ -486,6 +488,9 @@ private:
 
       switch (state)
       {
+        case SHUTDOWN:
+          ros::shutdown();
+          break;
         case ERROR:
 // Generally there's no need to stop before disconnecting after an
 // error. Indeed, stop will usually fail.
@@ -682,7 +687,15 @@ private:
           catch (std::runtime_error& e)
           {
             NODELET_ERROR("%s", e.what());
-            state = ERROR;
+            if (shutdown_on_error_)
+            {
+              NODELET_ERROR("Shutting down this process");
+              state = SHUTDOWN;
+            }
+            else
+            {
+              state = ERROR;
+            }
           }
 
           break;
@@ -774,6 +787,7 @@ private:
   std::shared_ptr<boost::thread> diagThread_;  ///< The thread that reads and publishes the diagnostics.
 
   bool reset_on_start_;
+  bool shutdown_on_error_;
   bool publish_diagnostics_;
   double diag_pub_rate_;
   std::unique_ptr<DiagnosticsManager> diag_man;
