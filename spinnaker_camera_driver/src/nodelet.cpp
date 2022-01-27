@@ -266,6 +266,7 @@ private:
 
     pnh.param<bool>("reset_on_start", reset_on_start_, false);
     pnh.param<bool>("shutdown_on_error", shutdown_on_error_, false);
+    pnh.param<bool>("use_device_timestamp", use_device_timestamp_, false);
 
     XmlRpc::XmlRpcValue serial_xmlrpc;
     pnh.getParam("serial", serial_xmlrpc);
@@ -633,9 +634,16 @@ private:
 
             // wfov_image->temperature = spinnaker_.getCameraTemperature();
 
-            ros::Time time = ros::Time::now();
-            wfov_image->header.stamp = time;
-            wfov_image->image.header.stamp = time;
+	    if (use_device_timestamp_)
+	    {
+	      wfov_image->header.stamp = wfov_image->image.header.stamp;
+	    }
+	    else
+	    {
+              ros::Time time = ros::Time::now();
+              wfov_image->header.stamp = time;
+              wfov_image->image.header.stamp = time;
+	    }
 
             // Set the CameraInfo message
             ci_.reset(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
@@ -788,6 +796,7 @@ private:
 
   bool reset_on_start_;
   bool shutdown_on_error_;
+  bool use_device_timestamp_;
   bool publish_diagnostics_;
   double diag_pub_rate_;
   std::unique_ptr<DiagnosticsManager> diag_man;

@@ -213,11 +213,15 @@ private:
 
   uint64_t timeout_;
 
+  ros::Duration timestamp_diff_;
+
   // This function configures the camera to add chunk data to each image. It does
   // this by enabling each type of chunk data before enabling chunk data mode.
   // When chunk data is turned on, the data is made available in both the nodemap
   // and each image.
   void ConfigureChunkData(const Spinnaker::GenApi::INodeMap& nodeMap);
+
+  ros::Duration getTimestampDiff();
 };
 }  // namespace spinnaker_camera_driver
 #endif  // SPINNAKER_CAMERA_DRIVER_SPINNAKERCAMERA_H

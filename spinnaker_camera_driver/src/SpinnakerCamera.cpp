@@ -388,6 +388,9 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
     // Handle "Image Retrieval" Exception
     try
     {
+      // execute TimeStampLatch for camera
+      getTimestampDiff();
+
       Spinnaker::ImagePtr image_ptr = pCam_->GetNextImage(timeout_);
       //  std::string format(image_ptr->GetPixelFormatName());
       //  std::printf("\033[100m format: %s \n", format.c_str());
@@ -408,8 +411,10 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
       // Set Image Time Stamp
       if (use_device_seq_) image->header.seq = static_cast<uint32_t>(image_ptr->GetID());
       else                 image->header.seq = seq_++;
-      image->header.stamp.sec = image_ptr->GetTimeStamp() * 1e-9;
-      image->header.stamp.nsec = image_ptr->GetTimeStamp();
+
+      ros::Time img_time = ros::Time();
+      img_time.fromNSec(static_cast<uint64_t>(image_ptr->GetTimeStamp()));
+      image->header.stamp = img_time + timestamp_diff_;
 
       // Check the bits per pixel.
       size_t bitsPerPixel = image_ptr->GetBitsPerPixel();
@@ -613,5 +618,16 @@ void SpinnakerCamera::ConfigureChunkData(const Spinnaker::GenApi::INodeMap& node
   {
     throw std::runtime_error(e.what());
   }
+}
+
+ros::Duration SpinnakerCamera::getTimestampDiff()
+{
+  ros::Time rostime = ros::Time::now();
+  pCam_->TimestampLatch();
+
+  ros::Time camtime = ros::Time();
+  camtime.fromNSec(static_cast<uint64_t>(pCam_->TimestampLatchValue()));
+
+  return rostime - camtime;
 }
 }  // namespace spinnaker_camera_driver
