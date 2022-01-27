@@ -388,11 +388,11 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
     // Handle "Image Retrieval" Exception
     try
     {
-      ros::Duration timestamp_diff = ros::Duration(0);
+      ros::Duration timestamp_diff(0);
       if (use_device_timestamp)
       {
         // execute TimeStampLatch for camera
-        ros::Time rostime = ros::Time::now();
+        const ros::Time rostime = ros::Time::now();
         pCam_->TimestampLatch();
 
         ros::Time camtime = ros::Time();
@@ -422,7 +422,7 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
       if (use_device_seq_) image->header.seq = static_cast<uint32_t>(image_ptr->GetID());
       else                 image->header.seq = seq_++;
 
-      ros::Time img_time = ros::Time();
+      const ros::Time img_time = ros::Time();
       img_time.fromNSec(static_cast<uint64_t>(image_ptr->GetTimeStamp()));
       image->header.stamp = img_time + timestamp_diff;
 

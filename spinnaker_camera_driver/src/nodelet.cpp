@@ -640,7 +640,7 @@ private:
             }
             else
             {
-              ros::Time time = ros::Time::now();
+              const ros::Time time = ros::Time::now();
               wfov_image->header.stamp = time;
               wfov_image->image.header.stamp = time;
             }

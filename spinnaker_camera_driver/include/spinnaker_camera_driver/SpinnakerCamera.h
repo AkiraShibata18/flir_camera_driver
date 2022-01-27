@@ -145,7 +145,7 @@ public:
   * \param image sensor_msgs::Image that will be filled with the image currently in the buffer.
   * \param frame_id The name of the optical frame of the camera.
   */
-  void grabImage(sensor_msgs::Image* image, const std::string& frame_id, const bool use_stamp_timestamp);
+  void grabImage(sensor_msgs::Image* image, const std::string& frame_id, const bool use_device_timestamp);
 
   /*!
   * \brief Will set grabImage timeout for the camera.
