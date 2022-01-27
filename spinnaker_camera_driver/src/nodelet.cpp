@@ -634,16 +634,16 @@ private:
 
             // wfov_image->temperature = spinnaker_.getCameraTemperature();
 
-	    if (use_device_timestamp_)
-	    {
-	      wfov_image->header.stamp = wfov_image->image.header.stamp;
-	    }
-	    else
-	    {
+            if (use_device_timestamp_)
+            {
+              wfov_image->header.stamp = wfov_image->image.header.stamp;
+            }
+            else
+            {
               ros::Time time = ros::Time::now();
               wfov_image->header.stamp = time;
               wfov_image->image.header.stamp = time;
-	    }
+            }
 
             // Set the CameraInfo message
             ci_.reset(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
