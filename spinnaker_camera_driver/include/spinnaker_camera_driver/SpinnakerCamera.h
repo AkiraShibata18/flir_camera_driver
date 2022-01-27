@@ -218,7 +218,6 @@ private:
   // When chunk data is turned on, the data is made available in both the nodemap
   // and each image.
   void ConfigureChunkData(const Spinnaker::GenApi::INodeMap& nodeMap);
-
 };
 }  // namespace spinnaker_camera_driver
 #endif  // SPINNAKER_CAMERA_DRIVER_SPINNAKERCAMERA_H
