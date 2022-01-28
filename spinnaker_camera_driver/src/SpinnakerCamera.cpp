@@ -378,7 +378,7 @@ void SpinnakerCamera::reset()
   }
 }
 
-void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& frame_id)
+void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& frame_id, const bool use_device_timestamp)
 {
   std::lock_guard<std::mutex> scopedLock(mutex_);
 
@@ -388,6 +388,19 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
     // Handle "Image Retrieval" Exception
     try
     {
+      ros::Duration timestamp_diff(0);
+      if (use_device_timestamp)
+      {
+        // execute TimeStampLatch for camera
+        const ros::Time rostime = ros::Time::now();
+        pCam_->TimestampLatch();
+
+        ros::Time camtime = ros::Time();
+        camtime.fromNSec(static_cast<uint64_t>(pCam_->TimestampLatchValue()));
+
+        timestamp_diff = rostime - camtime;
+      }
+
       Spinnaker::ImagePtr image_ptr = pCam_->GetNextImage(timeout_);
       //  std::string format(image_ptr->GetPixelFormatName());
       //  std::printf("\033[100m format: %s \n", format.c_str());
@@ -408,8 +421,10 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
       // Set Image Time Stamp
       if (use_device_seq_) image->header.seq = static_cast<uint32_t>(image_ptr->GetID());
       else                 image->header.seq = seq_++;
-      image->header.stamp.sec = image_ptr->GetTimeStamp() * 1e-9;
-      image->header.stamp.nsec = image_ptr->GetTimeStamp();
+
+      ros::Time img_time = ros::Time();
+      img_time.fromNSec(static_cast<uint64_t>(image_ptr->GetTimeStamp()));
+      image->header.stamp = img_time + timestamp_diff;
 
       // Check the bits per pixel.
       size_t bitsPerPixel = image_ptr->GetBitsPerPixel();
