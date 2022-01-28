@@ -422,7 +422,7 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
       if (use_device_seq_) image->header.seq = static_cast<uint32_t>(image_ptr->GetID());
       else                 image->header.seq = seq_++;
 
-      const ros::Time img_time = ros::Time();
+      ros::Time img_time = ros::Time();
       img_time.fromNSec(static_cast<uint64_t>(image_ptr->GetTimeStamp()));
       image->header.stamp = img_time + timestamp_diff;
 
