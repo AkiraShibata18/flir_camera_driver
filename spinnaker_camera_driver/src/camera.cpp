@@ -313,6 +313,14 @@ void Camera::setNewConfiguration(SpinnakerConfig& config, const uint32_t& level)
     setProperty(node_map_, "ImageCompressionMode", config.image_compression_mode);
     setProperty(node_map_, "AdaptiveCompressionEnable", config.adaptive_compression_enable);
     setProperty(node_map_, "MaxDatarateThreshold", config.max_datarate_threshold);
+
+    // Added for internal trigger generation using Counter
+    setProperty(node_map_, "CounterSelector", config.counter_selector);
+    setProperty(node_map_, "CounterEventSource", config.counter_event_source);
+    setProperty(node_map_, "CounterDuration", config.counter_duration);
+    setProperty(node_map_, "CounterDelay", config.counter_delay);
+    setProperty(node_map_, "CounterTriggerSource", config.counter_trigger_source);
+    setProperty(node_map_, "CounterTriggerActivation", config.counter_trigger_activation);
   }
   catch (const Spinnaker::Exception& e)
   {
