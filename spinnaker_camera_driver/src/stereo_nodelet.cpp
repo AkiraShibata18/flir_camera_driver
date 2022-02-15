@@ -100,9 +100,11 @@ public:
       try
       {
         NODELET_DEBUG_ONCE("Stopping camera capture.");
-        spinnaker_.stop();
+        spinnaker_left_.stop();
+        spinnaker_right_.stop();
         NODELET_DEBUG_ONCE("Disconnecting from camera.");
-        spinnaker_.disconnect();
+        spinnaker_left_.disconnect();
+        spinnaker_right_.disconnect();
       }
       catch (const std::runtime_error& e)
       {
@@ -129,7 +131,8 @@ private:
     try
     {
       NODELET_DEBUG_ONCE("Dynamic reconfigure callback with level: %u", level);
-      spinnaker_.setNewConfiguration(config, level);
+      spinnaker_left_.setNewConfiguration(config, level);
+      spinnaker_right_.setNewConfiguration(config, level);
 
       publish_diagnostics_ = config.publish_diagnostics;
       diag_pub_rate_ = config.diagnostic_publish_rate;
@@ -147,9 +150,11 @@ private:
       // TODO(mhosmar): Not compliant with CameraInfo message: "A particular ROI always denotes the
       //                same window of pixels on the camera sensor, regardless of binning settings."
       //                These values are in the post binned frame.
+
+      // TODO(ashib): check each camera width and height after config separated
       if ((config.image_format_roi_width + config.image_format_roi_height) > 0 &&
-          (config.image_format_roi_width < spinnaker_.getWidthMax() ||
-           config.image_format_roi_height < spinnaker_.getHeightMax()))
+          (config.image_format_roi_width < spinnaker_left_.getWidthMax() ||
+           config.image_format_roi_height < spinnaker_left_.getHeightMax()))
       {
         roi_x_offset_ = config.image_format_x_offset;
         roi_y_offset_ = config.image_format_y_offset;
@@ -188,10 +193,13 @@ private:
   *
   * This function will connect/disconnect from the camera depending on who is using the output.
   */
-  void connectCb()
+  void leftConnectCb()
   {
-    if (!pubThread_)  // We need to connect
+    is_left_connected_ = true;
+    NODELET_INFO_STREAM("leftConnectCb!! flag: " << is_left_connected_);
+    if (!pubThread_ && is_right_connected_)  // We need to connect
     {
+      NODELET_INFO_STREAM("leftConnectCb thread started");
       // Start the thread to loop through and publish messages
       pubThread_.reset(
           new boost::thread(boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::devicePoll, this)));
@@ -203,7 +211,71 @@ private:
     std::lock_guard<std::mutex> scopedLock(connect_mutex_); // Grab the mutex.  Wait until we're done initializing
     before letting this function through.
     // Check if we should disconnect (there are 0 subscribers to our data)
-    if(it_pub_.getNumSubscribers() == 0 && pub_->getPublisher().getNumSubscribers() == 0)
+    if(it_pub_left_.getNumSubscribers() == 0 && pub_->getPublisher().getNumSubscribers() == 0)
+    {
+      if (pubThread_)
+      {
+        NODELET_DEBUG_ONCE("Disconnecting.");
+        pubThread_->interrupt();
+        scopedLock.unlock();
+        pubThread_->join();
+        scopedLock.lock();
+        pubThread_.reset();
+        sub_.shutdown();
+
+        try
+        {
+          NODELET_DEBUG_ONCE("Stopping camera capture.");
+          spinnaker_.stop();
+        }
+        catch(std::runtime_error& e)
+        {
+          NODELET_ERROR("%s", e.what());
+        }
+
+        try
+        {
+          NODELET_DEBUG_ONCE("Disconnecting from camera.");
+          spinnaker_.disconnect();
+        }
+        catch(std::runtime_error& e)
+        {
+          NODELET_ERROR("%s", e.what());
+        }
+      }
+    }
+    else if(!pubThread_)     // We need to connect
+    {
+      // Start the thread to loop through and publish messages
+      pubThread_.reset(new boost::thread(boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::devicePoll,
+    this)));
+    }
+    else
+    {
+      NODELET_DEBUG_ONCE("Do nothing in callback.");
+    }
+    */
+  }
+
+  void rightConnectCb()
+  {
+    is_right_connected_ = true;
+    NODELET_INFO_STREAM("rightConnectCb!! flag: " << is_right_connected_);
+    if (!pubThread_ && is_left_connected_)  // We need to connect
+    {
+      // Start the thread to loop through and publish messages
+      NODELET_INFO_STREAM("rightConnectCb thread started");
+      pubThread_.reset(
+          new boost::thread(boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::devicePoll, this)));
+    }
+
+    // @tthomas - removing subscriber check and logic below as it's leading to mutex locks and crashes currently
+    /*
+    NODELET_DEBUG_ONCE("Connect callback!");
+    std::lock_guard<std::mutex> scopedLock(connect_mutex_); // Grab the mutex.  Wait until we're done initializing
+    before letting this function through.
+    // Check if we should disconnect (there are 0 subscribers to our data)
+    if(it_pub_right_.getNumSubscribers() == 0 && pub_->getPublisher().getNumSubscribers() == 0)
     {
       if (pubThread_)
       {
@@ -262,48 +334,48 @@ private:
     ros::NodeHandle& pnh = getMTPrivateNodeHandle();
 
     // Get a serial number through ros
-    int serial = 0;
+    int serial_left = 0;
 
     pnh.param<bool>("reset_on_start", reset_on_start_, false);
     pnh.param<bool>("shutdown_on_error", shutdown_on_error_, false);
     pnh.param<bool>("use_device_timestamp", use_device_timestamp_, false);
 
-    XmlRpc::XmlRpcValue serial_xmlrpc;
-    pnh.getParam("serial", serial_xmlrpc);
-    if (serial_xmlrpc.getType() == XmlRpc::XmlRpcValue::TypeInt)
+    XmlRpc::XmlRpcValue serial_xmlrpc_left;
+    pnh.getParam("serial", serial_xmlrpc_left);
+    if (serial_xmlrpc_left.getType() == XmlRpc::XmlRpcValue::TypeInt)
     {
-      pnh.param<int>("serial", serial, 0);
+      pnh.param<int>("serial", serial_left, 0);
     }
-    else if (serial_xmlrpc.getType() == XmlRpc::XmlRpcValue::TypeString)
+    else if (serial_xmlrpc_left.getType() == XmlRpc::XmlRpcValue::TypeString)
     {
-      std::string serial_str;
-      pnh.param<std::string>("serial", serial_str, "0");
-      std::istringstream(serial_str) >> serial;
+      std::string serial_str_left;
+      pnh.param<std::string>("serial", serial_str_left, "0");
+      std::istringstream(serial_str_left) >> serial_left;
     }
     else
     {
       NODELET_DEBUG_ONCE("Serial XMLRPC type.");
-      serial = 0;
+      serial_left = 0;
     }
 
-    std::string camera_serial_path;
-    pnh.param<std::string>("camera_serial_path", camera_serial_path, "");
-    NODELET_DEBUG_ONCE("Camera serial path %s", camera_serial_path.c_str());
+    std::string camera_serial_path_left;
+    pnh.param<std::string>("camera_serial_path", camera_serial_path_left, "");
+    NODELET_DEBUG_ONCE("Camera serial path %s", camera_serial_path_left.c_str());
     // If serial has been provided directly as a param, ignore the path
     // to read in the serial from.
-    while (serial == 0 && !camera_serial_path.empty())
+    while (serial_left == 0 && !camera_serial_path_left.empty())
     {
-      serial = readSerialAsHexFromFile(camera_serial_path);
-      if (serial == 0)
+      serial_left = readSerialAsHexFromFile(camera_serial_path_left);
+      if (serial_left == 0)
       {
         NODELET_WARN_ONCE("Waiting for camera serial path to become available");
         ros::Duration(1.0).sleep();  // Sleep for 1 second, wait for serial device path to become available
       }
     }
 
-    NODELET_DEBUG_ONCE("Using camera serial %d", serial);
+    NODELET_DEBUG_ONCE("Using camera serial %d", serial_left);
 
-    spinnaker_.setDesiredCamera((uint32_t)serial);
+    spinnaker_left_.setDesiredCamera((uint32_t)serial_left);
 
     // Get GigE camera parameters:
     pnh.param<int>("packet_size", packet_size_, 1400);
@@ -333,17 +405,24 @@ private:
     pnh.param<int>("queue_size", queue_size, 1);
 
     // Start the camera info manager and attempt to load any configurations
-    std::stringstream cinfo_name;
-    cinfo_name << serial;
-    cinfo_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name.str(), camera_info_url));
+    std::stringstream cinfo_name_left;
+    cinfo_name_left << serial_left;
+    cinfo_left_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_left.str(), camera_info_url));
+
+    // initialize connectCb flag
+    is_left_connected_ = false;
+    is_right_connected_ = false;
 
     // Publish topics using ImageTransport through camera_info_manager (gives cool things like compression)
-    it_.reset(new image_transport::ImageTransport(nh));
-    image_transport::SubscriberStatusCallback cb = boost::bind(&SpinnakerStereoCameraNodelet::connectCb, this);
-    it_pub_ = it_->advertiseCamera("image_raw", queue_size, cb, cb);
+    it_left_.reset(new image_transport::ImageTransport(nh));
+    it_right_.reset(new image_transport::ImageTransport(nh));
+    image_transport::SubscriberStatusCallback left_cb = boost::bind(&SpinnakerStereoCameraNodelet::leftConnectCb, this);
+    image_transport::SubscriberStatusCallback right_cb = boost::bind(&SpinnakerStereoCameraNodelet::rightConnectCb, this);
+    it_pub_left_ = it_left_->advertiseCamera("left/image_raw", queue_size, left_cb, left_cb);
+    it_pub_right_ = it_right_->advertiseCamera("right/image_raw", queue_size, right_cb, right_cb);
 
     // Set up diagnostics
-    updater_.setHardwareID("spinnaker_camera " + cinfo_name.str());
+    updater_.setHardwareID("spinnaker_camera " + cinfo_name_left.str());
 
     // Set up a diagnosed publisher
     double desired_freq;
@@ -360,10 +439,10 @@ private:
     pnh.param<double>("min_acceptable_delay", min_acceptable, 0.0);
     double max_acceptable;  // The maximum publishing delay (in seconds) before warning.
     pnh.param<double>("max_acceptable_delay", max_acceptable, 0.2);
-    ros::SubscriberStatusCallback cb2 = boost::bind(&SpinnakerStereoCameraNodelet::connectCb, this);
-    pub_.reset(
+    ros::SubscriberStatusCallback left_cb2 = boost::bind(&SpinnakerStereoCameraNodelet::leftConnectCb, this);
+    pub_left_.reset(
         new diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage>(
-            nh.advertise<wfov_camera_msgs::WFOVImage>("image", queue_size, cb2, cb2),
+            nh.advertise<wfov_camera_msgs::WFOVImage>("image", queue_size, left_cb2, left_cb2),
             updater_, diagnostic_updater::FrequencyStatusParam(
                           &min_freq_, &max_freq_, freq_tolerance, window_size),
             diagnostic_updater::TimeStampStatusParam(min_acceptable,
@@ -372,12 +451,12 @@ private:
     // Set up diagnostics aggregator publisher and diagnostics manager
     ros::SubscriberStatusCallback diag_cb =
         boost::bind(&SpinnakerStereoCameraNodelet::diagCb, this);
-    diagnostics_pub_.reset(
+    diagnostics_pub_left_.reset(
         new ros::Publisher(nh.advertise<diagnostic_msgs::DiagnosticArray>(
             "/diagnostics", 1, diag_cb, diag_cb)));
 
     diag_man = std::unique_ptr<DiagnosticsManager>(new DiagnosticsManager(
-        frame_id_, std::to_string(spinnaker_.getSerial()), diagnostics_pub_));
+        frame_id_, std::to_string(spinnaker_left_.getSerial()), diagnostics_pub_left_));
     diag_man->addDiagnostic("DeviceTemperature", true, std::make_pair(0.0f, 90.0f), -10.0f, 95.0f);
     diag_man->addDiagnostic("AcquisitionResultingFrameRate", true, std::make_pair(10.0f, 60.0f), 5.0f, 90.0f);
     diag_man->addDiagnostic("PowerSupplyVoltage", true, std::make_pair(4.5f, 5.2f), 4.4f, 5.3f);
@@ -423,7 +502,7 @@ private:
                                                            // to stop this
                                                            // thread.
     {
-      diag_man->processDiagnostics(&spinnaker_);
+      diag_man->processDiagnostics(&spinnaker_left_);
       r.sleep();
     }
   }
@@ -457,18 +536,22 @@ private:
       try
       {
         NODELET_INFO("Resetting device");
-        spinnaker_.reset();
-        spinnaker_.disconnect();
+        spinnaker_left_.reset();
+        spinnaker_right_.reset();
+        spinnaker_left_.disconnect();
+        spinnaker_right_.disconnect();
         while (!boost::this_thread::interruption_requested())
         {
           try
           {
-            spinnaker_.connect();
+            spinnaker_left_.connect();
+            spinnaker_right_.connect();
             break;
           }
           catch (const std::runtime_error &e)
           {
-            spinnaker_.disconnect();
+            spinnaker_left_.disconnect();
+            spinnaker_right_.disconnect();
             NODELET_INFO_STREAM("Waiting for device reset...");
             boost::this_thread::sleep_for(boost::chrono::seconds(1));
           }
@@ -506,7 +589,7 @@ private:
           try
           {
             NODELET_DEBUG_ONCE("Stopping camera.");
-            spinnaker_.stop();
+            spinnaker_left_.stop();
             NODELET_DEBUG_ONCE("Stopped camera.");
 
             state = STOPPED;
@@ -528,7 +611,7 @@ private:
           try
           {
             NODELET_DEBUG("Disconnecting from camera.");
-            spinnaker_.disconnect();
+            spinnaker_left_.disconnect();
             NODELET_DEBUG("Disconnected from camera.");
 
             state = DISCONNECTED;
@@ -550,7 +633,7 @@ private:
           {
             NODELET_DEBUG("Connecting to camera.");
 
-            spinnaker_.connect();
+            spinnaker_left_.connect();
 
             NODELET_DEBUG("Connected to camera.");
 
@@ -564,7 +647,7 @@ private:
               getMTPrivateNodeHandle().param("timeout", timeout, 1.0);
 
               NODELET_DEBUG_ONCE("Setting timeout to: %f.", timeout);
-              spinnaker_.setTimeout(timeout);
+              spinnaker_left_.setTimeout(timeout);
             }
             catch (const std::runtime_error& e)
             {
@@ -600,7 +683,7 @@ private:
           try
           {
             NODELET_DEBUG("Starting camera.");
-            spinnaker_.start();
+            spinnaker_left_.start();
             NODELET_DEBUG("Started camera.");
             NODELET_DEBUG("Attention: if nothing subscribes to the camera topic, the camera_info is not published "
                           "on the correspondent topic.");
@@ -622,8 +705,8 @@ private:
           {
             wfov_camera_msgs::WFOVImagePtr wfov_image(new wfov_camera_msgs::WFOVImage);
             // Get the image from the camera library
-            NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_.getSerial());
-            spinnaker_.grabImage(&wfov_image->image, frame_id_, use_device_timestamp_);
+            NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_left_.getSerial());
+            spinnaker_left_.grabImage(&wfov_image->image, frame_id_, use_device_timestamp_);
 
             // Set other values
             wfov_image->header.frame_id = frame_id_;
@@ -632,7 +715,7 @@ private:
             wfov_image->white_balance_blue = wb_blue_;
             wfov_image->white_balance_red = wb_red_;
 
-            // wfov_image->temperature = spinnaker_.getCameraTemperature();
+            // wfov_image->temperature = spinnaker_left_.getCameraTemperature();
 
             if (use_device_timestamp_)
             {
@@ -646,34 +729,34 @@ private:
             }
 
             // Set the CameraInfo message
-            ci_.reset(new sensor_msgs::CameraInfo(cinfo_->getCameraInfo()));
-            ci_->header.stamp = wfov_image->image.header.stamp;
-            ci_->header.frame_id = wfov_image->header.frame_id;
+            ci_left_.reset(new sensor_msgs::CameraInfo(cinfo_left_->getCameraInfo()));
+            ci_left_->header.stamp = wfov_image->image.header.stamp;
+            ci_left_->header.frame_id = wfov_image->header.frame_id;
             // The width/height in sensor_msgs/CameraInfo is full camera resolution in pixels,
             // which is unchanged regardless of binning settings.
-            ci_->width = ci_->width == 0 ? spinnaker_.getWidthMax() * binning_x_ : ci_->width;
-            ci_->height = ci_->height == 0 ? spinnaker_.getHeightMax() * binning_y_ : ci_->height;
+            ci_left_->width = ci_left_->width == 0 ? spinnaker_left_.getWidthMax() * binning_x_ : ci_left_->width;
+            ci_left_->height = ci_left_->height == 0 ? spinnaker_left_.getHeightMax() * binning_y_ : ci_left_->height;
             // The height, width, distortion model, and parameters are all filled in by camera info manager.
-            ci_->binning_x = binning_x_;
-            ci_->binning_y = binning_y_;
+            ci_left_->binning_x = binning_x_;
+            ci_left_->binning_y = binning_y_;
             // NOTE: The ROI offset/size in Spinnaker driver is the values, given in binned image coordinates,
             //       in sensor_msgs/CameraInfo, on the other hand, given in un-binned image coordinates.
-            ci_->roi.x_offset = roi_x_offset_ * binning_x_;
-            ci_->roi.y_offset = roi_y_offset_ * binning_y_;
-            ci_->roi.height = roi_height_ * binning_y_;
-            ci_->roi.width = roi_width_ * binning_x_;
-            ci_->roi.do_rectify = do_rectify_;
+            ci_left_->roi.x_offset = roi_x_offset_ * binning_x_;
+            ci_left_->roi.y_offset = roi_y_offset_ * binning_y_;
+            ci_left_->roi.height = roi_height_ * binning_y_;
+            ci_left_->roi.width = roi_width_ * binning_x_;
+            ci_left_->roi.do_rectify = do_rectify_;
 
-            wfov_image->info = *ci_;
+            wfov_image->info = *ci_left_;
 
             // Publish the full message
-            pub_->publish(wfov_image);
+            pub_left_->publish(wfov_image);
 
             // Publish the message using standard image transport
-            if (it_pub_.getNumSubscribers() > 0)
+            if (it_pub_left_.getNumSubscribers() > 0)
             {
               sensor_msgs::ImagePtr image(new sensor_msgs::Image(wfov_image->image));
-              it_pub_.publish(image, ci_);
+              it_pub_left_.publish(image, ci_left_);
             }
           }
           catch (CameraTimeoutException& e)
@@ -725,12 +808,12 @@ private:
                          msg.white_balance_blue, msg.white_balance_red);
       gain_ = msg.gain;
 
-      spinnaker_.setGain(static_cast<float>(gain_));
+      spinnaker_left_.setGain(static_cast<float>(gain_));
       wb_blue_ = msg.white_balance_blue;
       wb_red_ = msg.white_balance_red;
 
       // TODO(mhosmar):
-      // spinnaker_.setBRWhiteBalance(false, wb_blue_, wb_red_);
+      // spinnaker_left_.setBRWhiteBalance(false, wb_blue_, wb_red_);
     }
     catch (std::runtime_error& e)
     {
@@ -741,8 +824,8 @@ private:
   void roiCallback(const sensor_msgs::RegionOfInterest::ConstPtr &msg)
   {
     if ((msg->width + msg->height) > 0 &&
-        (static_cast<int>(msg->width) < spinnaker_.getWidthMax() ||
-         static_cast<int>(msg->height) < spinnaker_.getHeightMax()))
+        (static_cast<int>(msg->width) < spinnaker_left_.getWidthMax() ||
+         static_cast<int>(msg->height) < spinnaker_left_.getHeightMax()))
     {
       roi_x_offset_ = msg->x_offset;
       roi_y_offset_ = msg->y_offset;
@@ -759,7 +842,7 @@ private:
       roi_width_ = 0;
       do_rectify_ = false;  // Set to false if the whole image is captured.
     }
-    spinnaker_.setROI(roi_x_offset_, roi_y_offset_, roi_width_, roi_height_);
+    spinnaker_left_.setROI(roi_x_offset_, roi_y_offset_, roi_width_, roi_height_);
   }
 
   /* Class Fields */
@@ -768,13 +851,24 @@ private:
                                                                                                  ///  and keep the
   /// dynamic_reconfigure::Server
   /// in scope.
-  std::shared_ptr<image_transport::ImageTransport> it_;  ///< Needed to initialize and keep the ImageTransport in
+
+  // left camera
+  std::shared_ptr<image_transport::ImageTransport> it_left_;  ///< Needed to initialize and keep the ImageTransport in
                                                          /// scope.
-  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;  ///< Needed to initialize and keep the
+  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_left_;  ///< Needed to initialize and keep the
                                                                    /// CameraInfoManager in scope.
-  image_transport::CameraPublisher it_pub_;                        ///< CameraInfoManager ROS publisher
-  std::shared_ptr<diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage> > pub_;  ///< Diagnosed
-  std::shared_ptr<ros::Publisher> diagnostics_pub_;
+  image_transport::CameraPublisher it_pub_left_;                        ///< CameraInfoManager ROS publisher
+  std::shared_ptr<diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage> > pub_left_;  ///< Diagnosed
+  std::shared_ptr<ros::Publisher> diagnostics_pub_left_;
+
+  // right camera
+  std::shared_ptr<image_transport::ImageTransport> it_right_;  ///< Needed to initialize and keep the ImageTransport in
+                                                         /// scope.
+  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_right_;  ///< Needed to initialize and keep the
+                                                                   /// CameraInfoManager in scope.
+  image_transport::CameraPublisher it_pub_right_;                        ///< CameraInfoManager ROS publisher
+  std::shared_ptr<diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage> > pub_right_;  ///< Diagnosed
+  std::shared_ptr<ros::Publisher> diagnostics_pub_right_;
   /// publisher, has to be
   /// a pointer because of
   /// constructor
@@ -788,11 +882,20 @@ private:
   double min_freq_;
   double max_freq_;
 
-  SpinnakerCamera spinnaker_;      ///< Instance of the SpinnakerCamera library, used to interface with the hardware.
-  sensor_msgs::CameraInfoPtr ci_;  ///< Camera Info message.
+  // left camera
+  SpinnakerCamera spinnaker_left_;      ///< Instance of the SpinnakerCamera library, used to interface with the hardware.
+  sensor_msgs::CameraInfoPtr ci_left_;  ///< Camera Info message.
+
+  // right camera
+  SpinnakerCamera spinnaker_right_;      ///< Instance of the SpinnakerCamera library, used to interface with the hardware.
+  sensor_msgs::CameraInfoPtr ci_right_;  ///< Camera Info message.
+
   std::string frame_id_;           ///< Frame id for the camera messages, defaults to 'camera'
   std::shared_ptr<boost::thread> pubThread_;  ///< The thread that reads and publishes the images.
   std::shared_ptr<boost::thread> diagThread_;  ///< The thread that reads and publishes the diagnostics.
+
+  bool is_left_connected_;
+  bool is_right_connected_;
 
   bool reset_on_start_;
   bool shutdown_on_error_;
