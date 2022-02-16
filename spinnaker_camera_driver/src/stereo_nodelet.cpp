@@ -545,7 +545,14 @@ private:
     ros::SubscriberStatusCallback left_cb2 = boost::bind(&SpinnakerStereoCameraNodelet::leftConnectCb, this);
     pub_left_.reset(
         new diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage>(
-            nh.advertise<wfov_camera_msgs::WFOVImage>("image", queue_size, left_cb2, left_cb2),
+            left_pnh.advertise<wfov_camera_msgs::WFOVImage>("wfov_image", queue_size, left_cb2, left_cb2),
+            updater_, diagnostic_updater::FrequencyStatusParam(
+                          &min_freq_, &max_freq_, freq_tolerance, window_size),
+            diagnostic_updater::TimeStampStatusParam(min_acceptable,
+                                                     max_acceptable)));
+    pub_right_.reset(
+        new diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage>(
+            right_pnh.advertise<wfov_camera_msgs::WFOVImage>("wfov_image", queue_size, left_cb2, left_cb2),
             updater_, diagnostic_updater::FrequencyStatusParam(
                           &min_freq_, &max_freq_, freq_tolerance, window_size),
             diagnostic_updater::TimeStampStatusParam(min_acceptable,
@@ -690,8 +697,8 @@ private:
           // Try stopping the camera
           {
             std::lock_guard<std::mutex> scopedLock(connect_mutex_);
-            sub_.shutdown();
-            sub_roi_.shutdown();
+            sub_left_.shutdown();
+            sub_roi_left_.shutdown();
           }
 
           try
@@ -766,10 +773,10 @@ private:
             {
 	      ros::NodeHandle left_pnh (getMTNodeHandle(), "left");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
-              sub_ =
+              sub_left_ =
                   left_pnh.subscribe("image_exposure_sequence", 1,
                                      &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::leftGainWBCallback, this);
-              sub_roi_ =
+              sub_roi_left_ =
                   left_pnh.subscribe("set_roi", 1,
                                      &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::leftRoiCallback, this);
             }
@@ -829,8 +836,8 @@ private:
           // Try stopping the camera
           {
             std::lock_guard<std::mutex> scopedLock(connect_mutex_);
-            sub_.shutdown();
-            sub_roi_.shutdown();
+            sub_right_.shutdown();
+            sub_roi_right_.shutdown();
           }
 
           try
@@ -905,10 +912,10 @@ private:
             {
 	      ros::NodeHandle right_pnh (getMTNodeHandle(), "right");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
-              sub_ =
+              sub_right_ =
                   right_pnh.subscribe("image_exposure_sequence", 1,
                                       &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::rightGainWBCallback, this);
-              sub_roi_ =
+              sub_roi_right_ =
                   right_pnh.subscribe("set_roi", 1,
                                       &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::rightRoiCallback, this);
             }
@@ -1212,8 +1219,10 @@ private:
   /// a pointer because of
   /// constructor
   /// requirements
-  ros::Subscriber sub_;  ///< Subscriber for gain and white balance changes.
-  ros::Subscriber sub_roi_;   ///< Subscriber for setting ROI
+  ros::Subscriber sub_left_;  ///< Subscriber for gain and white balance changes.
+  ros::Subscriber sub_right_;  ///< Subscriber for gain and white balance changes.
+  ros::Subscriber sub_roi_left_;   ///< Subscriber for setting ROI
+  ros::Subscriber sub_roi_right_;   ///< Subscriber for setting ROI
 
   std::mutex connect_mutex_;
 
