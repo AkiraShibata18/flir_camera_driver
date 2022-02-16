@@ -124,14 +124,65 @@ private:
   * \param level driver_base reconfiguration level.  See driver_base/SensorLevels.h for more information.
   */
 
-  void paramCallback(spinnaker_camera_driver::SpinnakerConfig& config, uint32_t level)
+  void leftParamCallback(spinnaker_camera_driver::SpinnakerConfig& config, uint32_t level)
   {
-    config_ = config;
+    config_left_ = config;
 
     try
     {
       NODELET_DEBUG_ONCE("Dynamic reconfigure callback with level: %u", level);
       spinnaker_left_.setNewConfiguration(config, level);
+
+      publish_diagnostics_ = config.publish_diagnostics;
+      diag_pub_rate_ = config.diagnostic_publish_rate;
+
+      // Store needed parameters for the metadata message
+      gain_ = config.gain;
+      wb_blue_ = config.white_balance_blue_ratio;
+      wb_red_ = config.white_balance_red_ratio;
+
+      // No separate param in CameraInfo for binning/decimation
+      binning_x_ = config.image_format_x_binning * config.image_format_x_decimation;
+      binning_y_ = config.image_format_y_binning * config.image_format_y_decimation;
+
+      // Store CameraInfo RegionOfInterest information
+      // TODO(mhosmar): Not compliant with CameraInfo message: "A particular ROI always denotes the
+      //                same window of pixels on the camera sensor, regardless of binning settings."
+      //                These values are in the post binned frame.
+
+      if ((config.image_format_roi_width + config.image_format_roi_height) > 0 &&
+          (config.image_format_roi_width < spinnaker_left_.getWidthMax() ||
+           config.image_format_roi_height < spinnaker_left_.getHeightMax()))
+      {
+        roi_x_offset_ = config.image_format_x_offset;
+        roi_y_offset_ = config.image_format_y_offset;
+        roi_width_ = config.image_format_roi_width;
+        roi_height_ = config.image_format_roi_height;
+        do_rectify_ = true;  // Set to true if an ROI is used.
+      }
+      else
+      {
+        // Zeros mean the full resolution was captured.
+        roi_x_offset_ = 0;
+        roi_y_offset_ = 0;
+        roi_height_ = 0;
+        roi_width_ = 0;
+        do_rectify_ = false;  // Set to false if the whole image is captured.
+      }
+    }
+    catch (std::runtime_error& e)
+    {
+      NODELET_ERROR("Reconfigure Callback failed with error: %s", e.what());
+    }
+  }
+
+  void rightParamCallback(spinnaker_camera_driver::SpinnakerConfig& config, uint32_t level)
+  {
+    config_right_ = config;
+
+    try
+    {
+      NODELET_DEBUG_ONCE("Dynamic reconfigure callback with level: %u", level);
       spinnaker_right_.setNewConfiguration(config, level);
 
       publish_diagnostics_ = config.publish_diagnostics;
@@ -151,10 +202,9 @@ private:
       //                same window of pixels on the camera sensor, regardless of binning settings."
       //                These values are in the post binned frame.
 
-      // TODO(ashib): check each camera width and height after config separated
       if ((config.image_format_roi_width + config.image_format_roi_height) > 0 &&
-          (config.image_format_roi_width < spinnaker_left_.getWidthMax() ||
-           config.image_format_roi_height < spinnaker_left_.getHeightMax()))
+          (config.image_format_roi_width < spinnaker_right_.getWidthMax() ||
+           config.image_format_roi_height < spinnaker_right_.getHeightMax()))
       {
         roi_x_offset_ = config.image_format_x_offset;
         roi_y_offset_ = config.image_format_y_offset;
@@ -333,6 +383,9 @@ private:
     ros::NodeHandle& nh = getMTNodeHandle();
     ros::NodeHandle& pnh = getMTPrivateNodeHandle();
 
+    ros::NodeHandle left_pnh (pnh, "left");
+    ros::NodeHandle right_pnh (pnh, "right");
+
     // Get a serial number through ros
     int serial_left = 0;
     int serial_right = 0;
@@ -426,19 +479,26 @@ private:
     // spinnaker_.setGigEParameters(auto_packet_size_, packet_size_, packet_delay_);
 
     // Get the location of our camera config yaml
-    std::string camera_info_url;
-    pnh.param<std::string>("camera_info_url", camera_info_url, "");
+    std::string camera_info_url_left;
+    std::string camera_info_url_right;
+    pnh.param<std::string>("camera_info_url_left", camera_info_url_left, "");
+    pnh.param<std::string>("camera_info_url_right", camera_info_url_right, "");
     // Get the desired frame_id, set to 'camera' if not found
-    pnh.param<std::string>("frame_id", frame_id_, "camera");
+    pnh.param<std::string>("frame_id_left", frame_id_left_, "left_camera");
+    pnh.param<std::string>("frame_id_right", frame_id_right_, "right_camera");
     // Do not call the connectCb function until after we are done initializing.
     std::lock_guard<std::mutex> scopedLock(connect_mutex_);
 
     // Start up the dynamic_reconfigure service, note that this needs to stick around after this function ends
-    srv_ = std::make_shared<dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> >(pnh);
-    dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig>::CallbackType f =
-        boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::paramCallback, this, _1, _2);
+    srv_left_ = std::make_shared<dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> >(left_pnh);
+    srv_right_ = std::make_shared<dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> >(right_pnh);
+    dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig>::CallbackType f_left =
+        boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::leftParamCallback, this, _1, _2);
+    dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig>::CallbackType f_right =
+        boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::rightParamCallback, this, _1, _2);
 
-    srv_->setCallback(f);
+    srv_left_->setCallback(f_left);
+    srv_right_->setCallback(f_right);
 
     // queue size of ros publisher
     int queue_size;
@@ -447,10 +507,10 @@ private:
     // Start the camera info manager and attempt to load any configurations
     std::stringstream cinfo_name_left;
     cinfo_name_left << serial_left;
-    cinfo_left_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_left.str(), camera_info_url));
+    cinfo_left_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_left.str(), camera_info_url_left));
     std::stringstream cinfo_name_right;
     cinfo_name_right << serial_right;
-    cinfo_right_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_right.str(), camera_info_url));
+    cinfo_right_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_right.str(), camera_info_url_right));
 
     // initialize connectCb flag
     is_left_connected_ = false;
@@ -499,7 +559,7 @@ private:
             "/diagnostics", 1, diag_cb, diag_cb)));
 
     diag_man = std::unique_ptr<DiagnosticsManager>(new DiagnosticsManager(
-        frame_id_, std::to_string(spinnaker_left_.getSerial()), diagnostics_pub_left_));
+        frame_id_left_, std::to_string(spinnaker_left_.getSerial()), diagnostics_pub_left_));
     diag_man->addDiagnostic("DeviceTemperature", true, std::make_pair(0.0f, 90.0f), -10.0f, 95.0f);
     diag_man->addDiagnostic("AcquisitionResultingFrameRate", true, std::make_pair(10.0f, 60.0f), 5.0f, 90.0f);
     diag_man->addDiagnostic("PowerSupplyVoltage", true, std::make_pair(4.5f, 5.2f), 4.4f, 5.3f);
@@ -686,7 +746,7 @@ private:
             NODELET_DEBUG("Connected to camera.");
 
             // Set last configuration, forcing the reconfigure level to stop
-            paramCallback(config_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
+            leftParamCallback(config_left_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
 
             // Set the timeout for grabbing images.
             try
@@ -824,7 +884,7 @@ private:
             NODELET_DEBUG("Connected to camera.");
 
             // Set last configuration, forcing the reconfigure level to stop
-            paramCallback(config_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
+            rightParamCallback(config_right_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
 
             // Set the timeout for grabbing images.
             try
@@ -897,12 +957,12 @@ private:
               // Get the image from the camera library
               NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_left_.getSerial());
               NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_right_.getSerial());
-              spinnaker_left_.grabImage(&left_wfov_image->image, frame_id_, use_device_timestamp_);
-              spinnaker_right_.grabImage(&right_wfov_image->image, frame_id_, use_device_timestamp_);
+              spinnaker_left_.grabImage(&left_wfov_image->image, frame_id_left_, use_device_timestamp_);
+              spinnaker_right_.grabImage(&right_wfov_image->image, frame_id_right_, use_device_timestamp_);
 
               // Set other values
-              left_wfov_image->header.frame_id = frame_id_;
-              right_wfov_image->header.frame_id = frame_id_;
+              left_wfov_image->header.frame_id = frame_id_left_;
+              right_wfov_image->header.frame_id = frame_id_right_;
 
               left_wfov_image->gain = gain_;
               right_wfov_image->gain = gain_;
@@ -987,7 +1047,7 @@ private:
             }
             catch (const IncompleteImageException& e)
             {
-              if (config_.ignore_incomplete_image)
+              if (config_left_.ignore_incomplete_image && config_right_.ignore_incomplete_image)
               {
                 NODELET_WARN("%s", e.what());
               }
@@ -1071,7 +1131,8 @@ private:
   }
 
   /* Class Fields */
-  std::shared_ptr<dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> > srv_;  ///< Needed to
+  std::shared_ptr<dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> > srv_left_;
+  std::shared_ptr<dynamic_reconfigure::Server<spinnaker_camera_driver::SpinnakerConfig> > srv_right_;  ///< Needed to
                                                                                                  ///  initialize
                                                                                                  ///  and keep the
   /// dynamic_reconfigure::Server
@@ -1115,7 +1176,8 @@ private:
   SpinnakerCamera spinnaker_right_;      ///< Instance of the SpinnakerCamera library, used to interface with the hardware.
   sensor_msgs::CameraInfoPtr ci_right_;  ///< Camera Info message.
 
-  std::string frame_id_;           ///< Frame id for the camera messages, defaults to 'camera'
+  std::string frame_id_left_;           ///< Frame id for the camera messages, defaults to 'left_camera'
+  std::string frame_id_right_;           ///< Frame id for the camera messages, defaults to 'right_camera'
   std::shared_ptr<boost::thread> pubThread_;  ///< The thread that reads and publishes the images.
   std::shared_ptr<boost::thread> diagThread_;  ///< The thread that reads and publishes the diagnostics.
 
@@ -1152,7 +1214,8 @@ private:
   int packet_delay_;
 
   /// Configuration:
-  spinnaker_camera_driver::SpinnakerConfig config_;
+  spinnaker_camera_driver::SpinnakerConfig config_left_;
+  spinnaker_camera_driver::SpinnakerConfig config_right_;
 };
 
 PLUGINLIB_EXPORT_CLASS(spinnaker_camera_driver::SpinnakerStereoCameraNodelet,
