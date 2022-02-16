@@ -383,8 +383,8 @@ private:
     ros::NodeHandle& nh = getMTNodeHandle();
     ros::NodeHandle& pnh = getMTPrivateNodeHandle();
 
-    ros::NodeHandle left_pnh (pnh, "left");
-    ros::NodeHandle right_pnh (pnh, "right");
+    ros::NodeHandle left_pnh (nh, "left");
+    ros::NodeHandle right_pnh (nh, "right");
 
     // Get a serial number through ros
     int serial_left = 0;
@@ -764,7 +764,7 @@ private:
 
             // Subscribe to gain and white balance changes
             {
-	      ros::NodeHandle left_pnh (getMTPrivateNodeHandle(), "left");
+	      ros::NodeHandle left_pnh (getMTNodeHandle(), "left");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
               sub_ =
                   left_pnh.subscribe("image_exposure_sequence", 1,
@@ -903,7 +903,7 @@ private:
 
             // Subscribe to gain and white balance changes
             {
-	      ros::NodeHandle right_pnh (getMTPrivateNodeHandle(), "right");
+	      ros::NodeHandle right_pnh (getMTNodeHandle(), "right");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
               sub_ =
                   right_pnh.subscribe("image_exposure_sequence", 1,
