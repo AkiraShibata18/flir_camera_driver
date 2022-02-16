@@ -86,10 +86,15 @@ public:
   {
     std::lock_guard<std::mutex> scopedLock(connect_mutex_);
 
-    if (diagThread_)
+    if (leftDiagThread_)
     {
-      diagThread_->interrupt();
-      diagThread_->join();
+      leftDiagThread_->interrupt();
+      leftDiagThread_->join();
+    }
+    if (rightDiagThread_)
+    {
+      rightDiagThread_->interrupt();
+      rightDiagThread_->join();
     }
 
     if (pubThread_)
@@ -133,8 +138,8 @@ private:
       NODELET_DEBUG_ONCE("Dynamic reconfigure callback with level: %u", level);
       spinnaker_left_.setNewConfiguration(config, level);
 
-      publish_diagnostics_ = config.publish_diagnostics;
-      diag_pub_rate_ = config.diagnostic_publish_rate;
+      publish_diagnostics_left_ = config.publish_diagnostics;
+      diag_pub_rate_left_ = config.diagnostic_publish_rate;
 
       // Store needed parameters for the metadata message
       left_camera_settings.gain_ = config.gain;
@@ -185,8 +190,8 @@ private:
       NODELET_DEBUG_ONCE("Dynamic reconfigure callback with level: %u", level);
       spinnaker_right_.setNewConfiguration(config, level);
 
-      publish_diagnostics_ = config.publish_diagnostics;
-      diag_pub_rate_ = config.diagnostic_publish_rate;
+      publish_diagnostics_right_ = config.publish_diagnostics;
+      diag_pub_rate_right_ = config.diagnostic_publish_rate;
 
       // Store needed parameters for the metadata message
       right_camera_settings.gain_ = config.gain;
@@ -228,13 +233,23 @@ private:
     }
   }
 
-  void diagCb()
+  void leftDiagCb()
   {
-    if (publish_diagnostics_ && !diagThread_)  // We need to connect
+    if (publish_diagnostics_left_ && !leftDiagThread_)  // We need to connect
     {
       // Start the thread to loop through and publish messages
-      diagThread_.reset(
-          new boost::thread(boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::diagPoll, this)));
+      leftDiagThread_.reset(
+          new boost::thread(boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::leftDiagPoll, this)));
+    }
+  }
+
+  void rightDiagCb()
+  {
+    if (publish_diagnostics_right_ && !rightDiagThread_)  // We need to connect
+    {
+      // Start the thread to loop through and publish messages
+      rightDiagThread_.reset(
+          new boost::thread(boost::bind(&spinnaker_camera_driver::SpinnakerStereoCameraNodelet::rightDiagPoll, this)));
     }
   }
 
@@ -525,7 +540,8 @@ private:
     it_pub_right_ = it_right_->advertiseCamera("right/image_raw", queue_size, right_cb, right_cb);
 
     // Set up diagnostics
-    updater_.setHardwareID("spinnaker_camera " + cinfo_name_left.str());
+    updater_left_.setHardwareID("spinnaker_camera " + cinfo_name_left.str());
+    updater_right_.setHardwareID("spinnaker_camera " + cinfo_name_right.str());
 
     // Set up a diagnosed publisher
     double desired_freq;
@@ -543,36 +559,52 @@ private:
     double max_acceptable;  // The maximum publishing delay (in seconds) before warning.
     pnh.param<double>("max_acceptable_delay", max_acceptable, 0.2);
     ros::SubscriberStatusCallback left_cb2 = boost::bind(&SpinnakerStereoCameraNodelet::leftConnectCb, this);
+    ros::SubscriberStatusCallback right_cb2 = boost::bind(&SpinnakerStereoCameraNodelet::rightConnectCb, this);
     pub_left_.reset(
         new diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage>(
             left_pnh.advertise<wfov_camera_msgs::WFOVImage>("wfov_image", queue_size, left_cb2, left_cb2),
-            updater_, diagnostic_updater::FrequencyStatusParam(
+            updater_left_, diagnostic_updater::FrequencyStatusParam(
                           &min_freq_, &max_freq_, freq_tolerance, window_size),
             diagnostic_updater::TimeStampStatusParam(min_acceptable,
                                                      max_acceptable)));
     pub_right_.reset(
         new diagnostic_updater::DiagnosedPublisher<wfov_camera_msgs::WFOVImage>(
-            right_pnh.advertise<wfov_camera_msgs::WFOVImage>("wfov_image", queue_size, left_cb2, left_cb2),
-            updater_, diagnostic_updater::FrequencyStatusParam(
+            right_pnh.advertise<wfov_camera_msgs::WFOVImage>("wfov_image", queue_size, right_cb2, right_cb2),
+            updater_right_, diagnostic_updater::FrequencyStatusParam(
                           &min_freq_, &max_freq_, freq_tolerance, window_size),
             diagnostic_updater::TimeStampStatusParam(min_acceptable,
                                                      max_acceptable)));
 
     // Set up diagnostics aggregator publisher and diagnostics manager
-    ros::SubscriberStatusCallback diag_cb =
-        boost::bind(&SpinnakerStereoCameraNodelet::diagCb, this);
+    ros::SubscriberStatusCallback left_diag_cb =
+        boost::bind(&SpinnakerStereoCameraNodelet::leftDiagCb, this);
+    ros::SubscriberStatusCallback right_diag_cb =
+        boost::bind(&SpinnakerStereoCameraNodelet::rightDiagCb, this);
     diagnostics_pub_left_.reset(
         new ros::Publisher(nh.advertise<diagnostic_msgs::DiagnosticArray>(
-            "/diagnostics", 1, diag_cb, diag_cb)));
+            "/diagnostics_left", 1, left_diag_cb, left_diag_cb)));
+    diagnostics_pub_right_.reset(
+        new ros::Publisher(nh.advertise<diagnostic_msgs::DiagnosticArray>(
+            "/diagnostics_right", 1, right_diag_cb, right_diag_cb)));
 
-    diag_man = std::unique_ptr<DiagnosticsManager>(new DiagnosticsManager(
+    diag_man_left = std::unique_ptr<DiagnosticsManager>(new DiagnosticsManager(
         frame_id_left_, std::to_string(spinnaker_left_.getSerial()), diagnostics_pub_left_));
-    diag_man->addDiagnostic("DeviceTemperature", true, std::make_pair(0.0f, 90.0f), -10.0f, 95.0f);
-    diag_man->addDiagnostic("AcquisitionResultingFrameRate", true, std::make_pair(10.0f, 60.0f), 5.0f, 90.0f);
-    diag_man->addDiagnostic("PowerSupplyVoltage", true, std::make_pair(4.5f, 5.2f), 4.4f, 5.3f);
-    diag_man->addDiagnostic("PowerSupplyCurrent", true, std::make_pair(0.4f, 0.6f), 0.3f, 1.0f);
-    diag_man->addDiagnostic<int>("DeviceUptime");
-    diag_man->addDiagnostic<int>("U3VMessageChannelID");
+    diag_man_left->addDiagnostic("DeviceTemperature", true, std::make_pair(0.0f, 90.0f), -10.0f, 95.0f);
+    diag_man_left->addDiagnostic("AcquisitionResultingFrameRate", true, std::make_pair(10.0f, 60.0f), 5.0f, 90.0f);
+    diag_man_left->addDiagnostic("PowerSupplyVoltage", true, std::make_pair(4.5f, 5.2f), 4.4f, 5.3f);
+    diag_man_left->addDiagnostic("PowerSupplyCurrent", true, std::make_pair(0.4f, 0.6f), 0.3f, 1.0f);
+    diag_man_left->addDiagnostic<int>("DeviceUptime");
+    diag_man_left->addDiagnostic<int>("U3VMessageChannelID");
+
+    diag_man_right = std::unique_ptr<DiagnosticsManager>(new DiagnosticsManager(
+        frame_id_right_, std::to_string(spinnaker_right_.getSerial()), diagnostics_pub_right_));
+    diag_man_right->addDiagnostic("DeviceTemperature", true, std::make_pair(0.0f, 90.0f), -10.0f, 95.0f);
+    diag_man_right->addDiagnostic("AcquisitionResultingFrameRate", true, std::make_pair(10.0f, 60.0f), 5.0f, 90.0f);
+    diag_man_right->addDiagnostic("PowerSupplyVoltage", true, std::make_pair(4.5f, 5.2f), 4.4f, 5.3f);
+    diag_man_right->addDiagnostic("PowerSupplyCurrent", true, std::make_pair(0.4f, 0.6f), 0.3f, 1.0f);
+    diag_man_right->addDiagnostic<int>("DeviceUptime");
+    diag_man_right->addDiagnostic<int>("U3VMessageChannelID");
+
   }
 
   /**
@@ -605,14 +637,26 @@ private:
     return 0;
   }
 
-  void diagPoll()
+  void leftDiagPoll()
   {
-    ros::Rate r(diag_pub_rate_);
+    ros::Rate r(diag_pub_rate_left_);
     while (!boost::this_thread::interruption_requested())  // Block until we need
                                                            // to stop this
                                                            // thread.
     {
-      diag_man->processDiagnostics(&spinnaker_left_);
+      diag_man_left->processDiagnostics(&spinnaker_left_);
+      r.sleep();
+    }
+  }
+
+  void rightDiagPoll()
+  {
+    ros::Rate r(diag_pub_rate_right_);
+    while (!boost::this_thread::interruption_requested())  // Block until we need
+                                                           // to stop this
+                                                           // thread.
+    {
+      diag_man_right->processDiagnostics(&spinnaker_right_);
       r.sleep();
     }
   }
@@ -1089,7 +1133,8 @@ private:
       }
 
       // Update diagnostics
-      updater_.update();
+      updater_left_.update();
+      updater_right_.update();
     }
     NODELET_DEBUG_ONCE("Leaving thread.");
   }
@@ -1226,7 +1271,8 @@ private:
 
   std::mutex connect_mutex_;
 
-  diagnostic_updater::Updater updater_;  ///< Handles publishing diagnostics messages.
+  diagnostic_updater::Updater updater_left_;  ///< Handles publishing diagnostics messages.
+  diagnostic_updater::Updater updater_right_;  ///< Handles publishing diagnostics messages.
   double min_freq_;
   double max_freq_;
 
@@ -1241,7 +1287,8 @@ private:
   std::string frame_id_left_;           ///< Frame id for the camera messages, defaults to 'left_camera'
   std::string frame_id_right_;           ///< Frame id for the camera messages, defaults to 'right_camera'
   std::shared_ptr<boost::thread> pubThread_;  ///< The thread that reads and publishes the images.
-  std::shared_ptr<boost::thread> diagThread_;  ///< The thread that reads and publishes the diagnostics.
+  std::shared_ptr<boost::thread> leftDiagThread_;  ///< The thread that reads and publishes the diagnostics.
+  std::shared_ptr<boost::thread> rightDiagThread_;  ///< The thread that reads and publishes the diagnostics.
 
   bool is_left_connected_;
   bool is_right_connected_;
@@ -1249,9 +1296,12 @@ private:
   bool reset_on_start_;
   bool shutdown_on_error_;
   bool use_device_timestamp_;
-  bool publish_diagnostics_;
-  double diag_pub_rate_;
-  std::unique_ptr<DiagnosticsManager> diag_man;
+  bool publish_diagnostics_left_;
+  bool publish_diagnostics_right_;
+  double diag_pub_rate_left_;
+  double diag_pub_rate_right_;
+  std::unique_ptr<DiagnosticsManager> diag_man_left;
+  std::unique_ptr<DiagnosticsManager> diag_man_right;
 
   struct CameraSettings{
     double gain_;
