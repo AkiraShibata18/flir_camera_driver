@@ -137,13 +137,13 @@ private:
       diag_pub_rate_ = config.diagnostic_publish_rate;
 
       // Store needed parameters for the metadata message
-      gain_ = config.gain;
-      wb_blue_ = config.white_balance_blue_ratio;
-      wb_red_ = config.white_balance_red_ratio;
+      left_camera_settings.gain_ = config.gain;
+      left_camera_settings.wb_blue_ = config.white_balance_blue_ratio;
+      left_camera_settings.wb_red_ = config.white_balance_red_ratio;
 
       // No separate param in CameraInfo for binning/decimation
-      binning_x_ = config.image_format_x_binning * config.image_format_x_decimation;
-      binning_y_ = config.image_format_y_binning * config.image_format_y_decimation;
+      left_camera_settings.binning_x_ = config.image_format_x_binning * config.image_format_x_decimation;
+      left_camera_settings.binning_y_ = config.image_format_y_binning * config.image_format_y_decimation;
 
       // Store CameraInfo RegionOfInterest information
       // TODO(mhosmar): Not compliant with CameraInfo message: "A particular ROI always denotes the
@@ -154,20 +154,20 @@ private:
           (config.image_format_roi_width < spinnaker_left_.getWidthMax() ||
            config.image_format_roi_height < spinnaker_left_.getHeightMax()))
       {
-        roi_x_offset_ = config.image_format_x_offset;
-        roi_y_offset_ = config.image_format_y_offset;
-        roi_width_ = config.image_format_roi_width;
-        roi_height_ = config.image_format_roi_height;
-        do_rectify_ = true;  // Set to true if an ROI is used.
+        left_camera_settings.roi_x_offset_ = config.image_format_x_offset;
+        left_camera_settings.roi_y_offset_ = config.image_format_y_offset;
+        left_camera_settings.roi_width_ = config.image_format_roi_width;
+        left_camera_settings.roi_height_ = config.image_format_roi_height;
+        left_camera_settings.do_rectify_ = true;  // Set to true if an ROI is used.
       }
       else
       {
         // Zeros mean the full resolution was captured.
-        roi_x_offset_ = 0;
-        roi_y_offset_ = 0;
-        roi_height_ = 0;
-        roi_width_ = 0;
-        do_rectify_ = false;  // Set to false if the whole image is captured.
+        left_camera_settings.roi_x_offset_ = 0;
+        left_camera_settings.roi_y_offset_ = 0;
+        left_camera_settings.roi_height_ = 0;
+        left_camera_settings.roi_width_ = 0;
+        left_camera_settings.do_rectify_ = false;  // Set to false if the whole image is captured.
       }
     }
     catch (std::runtime_error& e)
@@ -189,13 +189,13 @@ private:
       diag_pub_rate_ = config.diagnostic_publish_rate;
 
       // Store needed parameters for the metadata message
-      gain_ = config.gain;
-      wb_blue_ = config.white_balance_blue_ratio;
-      wb_red_ = config.white_balance_red_ratio;
+      right_camera_settings.gain_ = config.gain;
+      right_camera_settings.wb_blue_ = config.white_balance_blue_ratio;
+      right_camera_settings.wb_red_ = config.white_balance_red_ratio;
 
       // No separate param in CameraInfo for binning/decimation
-      binning_x_ = config.image_format_x_binning * config.image_format_x_decimation;
-      binning_y_ = config.image_format_y_binning * config.image_format_y_decimation;
+      right_camera_settings.binning_x_ = config.image_format_x_binning * config.image_format_x_decimation;
+      right_camera_settings.binning_y_ = config.image_format_y_binning * config.image_format_y_decimation;
 
       // Store CameraInfo RegionOfInterest information
       // TODO(mhosmar): Not compliant with CameraInfo message: "A particular ROI always denotes the
@@ -206,20 +206,20 @@ private:
           (config.image_format_roi_width < spinnaker_right_.getWidthMax() ||
            config.image_format_roi_height < spinnaker_right_.getHeightMax()))
       {
-        roi_x_offset_ = config.image_format_x_offset;
-        roi_y_offset_ = config.image_format_y_offset;
-        roi_width_ = config.image_format_roi_width;
-        roi_height_ = config.image_format_roi_height;
-        do_rectify_ = true;  // Set to true if an ROI is used.
+        right_camera_settings.roi_x_offset_ = config.image_format_x_offset;
+        right_camera_settings.roi_y_offset_ = config.image_format_y_offset;
+        right_camera_settings.roi_width_ = config.image_format_roi_width;
+        right_camera_settings.roi_height_ = config.image_format_roi_height;
+        right_camera_settings.do_rectify_ = true;  // Set to true if an ROI is used.
       }
       else
       {
         // Zeros mean the full resolution was captured.
-        roi_x_offset_ = 0;
-        roi_y_offset_ = 0;
-        roi_height_ = 0;
-        roi_width_ = 0;
-        do_rectify_ = false;  // Set to false if the whole image is captured.
+        right_camera_settings.roi_x_offset_ = 0;
+        right_camera_settings.roi_y_offset_ = 0;
+        right_camera_settings.roi_height_ = 0;
+        right_camera_settings.roi_width_ = 0;
+        right_camera_settings.do_rectify_ = false;  // Set to false if the whole image is captured.
       }
     }
     catch (std::runtime_error& e)
@@ -507,10 +507,10 @@ private:
     // Start the camera info manager and attempt to load any configurations
     std::stringstream cinfo_name_left;
     cinfo_name_left << serial_left;
-    cinfo_left_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_left.str(), camera_info_url_left));
+    cinfo_left_.reset(new camera_info_manager::CameraInfoManager(left_pnh, cinfo_name_left.str(), camera_info_url_left));
     std::stringstream cinfo_name_right;
     cinfo_name_right << serial_right;
-    cinfo_right_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_right.str(), camera_info_url_right));
+    cinfo_right_.reset(new camera_info_manager::CameraInfoManager(right_pnh, cinfo_name_right.str(), camera_info_url_right));
 
     // initialize connectCb flag
     is_left_connected_ = false;
@@ -764,13 +764,14 @@ private:
 
             // Subscribe to gain and white balance changes
             {
+	      ros::NodeHandle left_pnh (getMTPrivateNodeHandle(), "left");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
               sub_ =
-                  getMTNodeHandle().subscribe("image_exposure_sequence", 1,
-                                              &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::gainWBCallback, this);
+                  left_pnh.subscribe("image_exposure_sequence", 1,
+                                     &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::leftGainWBCallback, this);
               sub_roi_ =
-                  getMTNodeHandle().subscribe("set_roi", 1,
-                                              &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::roiCallback, this);
+                  left_pnh.subscribe("set_roi", 1,
+                                     &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::leftRoiCallback, this);
             }
 
             left_state = CONNECTED;
@@ -902,13 +903,14 @@ private:
 
             // Subscribe to gain and white balance changes
             {
+	      ros::NodeHandle right_pnh (getMTPrivateNodeHandle(), "right");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
               sub_ =
-                  getMTNodeHandle().subscribe("image_exposure_sequence", 1,
-                                              &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::gainWBCallback, this);
+                  right_pnh.subscribe("image_exposure_sequence", 1,
+                                      &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::rightGainWBCallback, this);
               sub_roi_ =
-                  getMTNodeHandle().subscribe("set_roi", 1,
-                                              &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::roiCallback, this);
+                  right_pnh.subscribe("set_roi", 1,
+                                      &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::rightRoiCallback, this);
             }
 
             right_state = CONNECTED;
@@ -964,12 +966,12 @@ private:
               left_wfov_image->header.frame_id = frame_id_left_;
               right_wfov_image->header.frame_id = frame_id_right_;
 
-              left_wfov_image->gain = gain_;
-              right_wfov_image->gain = gain_;
-              left_wfov_image->white_balance_blue = wb_blue_;
-              right_wfov_image->white_balance_blue = wb_blue_;
-              left_wfov_image->white_balance_red = wb_red_;
-              right_wfov_image->white_balance_red = wb_red_;
+              left_wfov_image->gain = left_camera_settings.gain_;
+              right_wfov_image->gain = right_camera_settings.gain_;
+              left_wfov_image->white_balance_blue = left_camera_settings.wb_blue_;
+              right_wfov_image->white_balance_blue = right_camera_settings.wb_blue_;
+              left_wfov_image->white_balance_red = left_camera_settings.wb_red_;
+              right_wfov_image->white_balance_red = right_camera_settings.wb_red_;
 
               // wfov_image->temperature = spinnaker_right_.getCameraTemperature();
 
@@ -987,43 +989,43 @@ private:
                 right_wfov_image->image.header.stamp = time;
               }
 
-              // Set the CameraInfo message
+              // Set the Left CameraInfo message
               ci_left_.reset(new sensor_msgs::CameraInfo(cinfo_left_->getCameraInfo()));
               ci_left_->header.stamp = left_wfov_image->image.header.stamp;
               ci_left_->header.frame_id = left_wfov_image->header.frame_id;
               // The width/height in sensor_msgs/CameraInfo is full camera resolution in pixels,
               // which is unchanged regardless of binning settings.
-              ci_left_->width = ci_left_->width == 0 ? spinnaker_left_.getWidthMax() * binning_x_ : ci_left_->width;
-              ci_left_->height = ci_left_->height == 0 ? spinnaker_left_.getHeightMax() * binning_y_ : ci_left_->height;
+              ci_left_->width = ci_left_->width == 0 ? spinnaker_left_.getWidthMax() * left_camera_settings.binning_x_ : ci_left_->width;
+              ci_left_->height = ci_left_->height == 0 ? spinnaker_left_.getHeightMax() * left_camera_settings.binning_y_ : ci_left_->height;
               // The height, width, distortion model, and parameters are all filled in by camera info manager.
-              ci_left_->binning_x = binning_x_;
-              ci_left_->binning_y = binning_y_;
+              ci_left_->binning_x = left_camera_settings.binning_x_;
+              ci_left_->binning_y = left_camera_settings.binning_y_;
               // NOTE: The ROI offset/size in Spinnaker driver is the values, given in binned image coordinates,
               //       in sensor_msgs/CameraInfo, on the other hand, given in un-binned image coordinates.
-              ci_left_->roi.x_offset = roi_x_offset_ * binning_x_;
-              ci_left_->roi.y_offset = roi_y_offset_ * binning_y_;
-              ci_left_->roi.height = roi_height_ * binning_y_;
-              ci_left_->roi.width = roi_width_ * binning_x_;
-              ci_left_->roi.do_rectify = do_rectify_;
+              ci_left_->roi.x_offset = left_camera_settings.roi_x_offset_ * left_camera_settings.binning_x_;
+              ci_left_->roi.y_offset = left_camera_settings.roi_y_offset_ * left_camera_settings.binning_y_;
+              ci_left_->roi.height = left_camera_settings.roi_height_ * left_camera_settings.binning_y_;
+              ci_left_->roi.width = left_camera_settings.roi_width_ * left_camera_settings.binning_x_;
+              ci_left_->roi.do_rectify = left_camera_settings.do_rectify_;
 
-              // Set the CameraInfo message
+              // Set the Right CameraInfo message
               ci_right_.reset(new sensor_msgs::CameraInfo(cinfo_right_->getCameraInfo()));
               ci_right_->header.stamp = right_wfov_image->image.header.stamp;
               ci_right_->header.frame_id = right_wfov_image->header.frame_id;
               // The width/height in sensor_msgs/CameraInfo is full camera resolution in pixels,
               // which is unchanged regardless of binning settings.
-              ci_right_->width = ci_right_->width == 0 ? spinnaker_right_.getWidthMax() * binning_x_ : ci_right_->width;
-              ci_right_->height = ci_right_->height == 0 ? spinnaker_right_.getHeightMax() * binning_y_ : ci_right_->height;
+              ci_right_->width = ci_right_->width == 0 ? spinnaker_right_.getWidthMax() * right_camera_settings.binning_x_ : ci_right_->width;
+              ci_right_->height = ci_right_->height == 0 ? spinnaker_right_.getHeightMax() * right_camera_settings.binning_y_ : ci_right_->height;
               // The height, width, distortion model, and parameters are all filled in by camera info manager.
-              ci_right_->binning_x = binning_x_;
-              ci_right_->binning_y = binning_y_;
+              ci_right_->binning_x = right_camera_settings.binning_x_;
+              ci_right_->binning_y = right_camera_settings.binning_y_;
               // NOTE: The ROI offset/size in Spinnaker driver is the values, given in binned image coordinates,
               //       in sensor_msgs/CameraInfo, on the other hand, given in un-binned image coordinates.
-              ci_right_->roi.x_offset = roi_x_offset_ * binning_x_;
-              ci_right_->roi.y_offset = roi_y_offset_ * binning_y_;
-              ci_right_->roi.height = roi_height_ * binning_y_;
-              ci_right_->roi.width = roi_width_ * binning_x_;
-              ci_right_->roi.do_rectify = do_rectify_;
+              ci_right_->roi.x_offset = right_camera_settings.roi_x_offset_ * right_camera_settings.binning_x_;
+              ci_right_->roi.y_offset = right_camera_settings.roi_y_offset_ * right_camera_settings.binning_y_;
+              ci_right_->roi.height = right_camera_settings.roi_height_ * right_camera_settings.binning_y_;
+              ci_right_->roi.width = right_camera_settings.roi_width_ * right_camera_settings.binning_x_;
+              ci_right_->roi.do_rectify = right_camera_settings.do_rectify_;
 
               left_wfov_image->info = *ci_left_;
               right_wfov_image->info = *ci_right_;
@@ -1085,17 +1087,17 @@ private:
     NODELET_DEBUG_ONCE("Leaving thread.");
   }
 
-  void gainWBCallback(const image_exposure_msgs::ExposureSequence& msg)
+  void leftGainWBCallback(const image_exposure_msgs::ExposureSequence& msg)
   {
     try
     {
       NODELET_DEBUG_ONCE("Gain callback:  Setting gain to %f and white balances to %u, %u", msg.gain,
                          msg.white_balance_blue, msg.white_balance_red);
-      gain_ = msg.gain;
+      left_camera_settings.gain_ = msg.gain;
 
-      spinnaker_left_.setGain(static_cast<float>(gain_));
-      wb_blue_ = msg.white_balance_blue;
-      wb_red_ = msg.white_balance_red;
+      spinnaker_left_.setGain(static_cast<float>(left_camera_settings.gain_));
+      left_camera_settings.wb_blue_ = msg.white_balance_blue;
+      left_camera_settings.wb_red_ = msg.white_balance_red;
 
       // TODO(mhosmar):
       // spinnaker_left_.setBRWhiteBalance(false, wb_blue_, wb_red_);
@@ -1106,28 +1108,79 @@ private:
     }
   }
 
-  void roiCallback(const sensor_msgs::RegionOfInterest::ConstPtr &msg)
+  void rightGainWBCallback(const image_exposure_msgs::ExposureSequence& msg)
+  {
+    try
+    {
+      NODELET_DEBUG_ONCE("Gain callback:  Setting gain to %f and white balances to %u, %u", msg.gain,
+                         msg.white_balance_blue, msg.white_balance_red);
+      right_camera_settings.gain_ = msg.gain;
+
+      spinnaker_right_.setGain(static_cast<float>(right_camera_settings.gain_));
+      right_camera_settings.wb_blue_ = msg.white_balance_blue;
+      right_camera_settings.wb_red_ = msg.white_balance_red;
+
+      // TODO(mhosmar):
+      // spinnaker_right_.setBRWhiteBalance(false, wb_blue_, wb_red_);
+    }
+    catch (std::runtime_error& e)
+    {
+      NODELET_ERROR("gainWBCallback failed with error: %s", e.what());
+    }
+  }
+
+  void leftRoiCallback(const sensor_msgs::RegionOfInterest::ConstPtr &msg)
   {
     if ((msg->width + msg->height) > 0 &&
         (static_cast<int>(msg->width) < spinnaker_left_.getWidthMax() ||
          static_cast<int>(msg->height) < spinnaker_left_.getHeightMax()))
     {
-      roi_x_offset_ = msg->x_offset;
-      roi_y_offset_ = msg->y_offset;
-      roi_width_ = msg->width;
-      roi_height_ = msg->height;
-      do_rectify_ = true;
+      left_camera_settings.roi_x_offset_ = msg->x_offset;
+      left_camera_settings.roi_y_offset_ = msg->y_offset;
+      left_camera_settings.roi_width_ = msg->width;
+      left_camera_settings.roi_height_ = msg->height;
+      left_camera_settings.do_rectify_ = true;
     }
     else
     {
       // Zeros mean the full resolution was captured.
-      roi_x_offset_ = 0;
-      roi_y_offset_ = 0;
-      roi_height_ = 0;
-      roi_width_ = 0;
-      do_rectify_ = false;  // Set to false if the whole image is captured.
+      left_camera_settings.roi_x_offset_ = 0;
+      left_camera_settings.roi_y_offset_ = 0;
+      left_camera_settings.roi_height_ = 0;
+      left_camera_settings.roi_width_ = 0;
+      left_camera_settings.do_rectify_ = false;  // Set to false if the whole image is captured.
     }
-    spinnaker_left_.setROI(roi_x_offset_, roi_y_offset_, roi_width_, roi_height_);
+    spinnaker_left_.setROI(left_camera_settings.roi_x_offset_,
+			   left_camera_settings.roi_y_offset_,
+			   left_camera_settings.roi_width_,
+			   left_camera_settings.roi_height_);
+  }
+
+  void rightRoiCallback(const sensor_msgs::RegionOfInterest::ConstPtr &msg)
+  {
+    if ((msg->width + msg->height) > 0 &&
+        (static_cast<int>(msg->width) < spinnaker_right_.getWidthMax() ||
+         static_cast<int>(msg->height) < spinnaker_right_.getHeightMax()))
+    {
+      right_camera_settings.roi_x_offset_ = msg->x_offset;
+      right_camera_settings.roi_y_offset_ = msg->y_offset;
+      right_camera_settings.roi_width_ = msg->width;
+      right_camera_settings.roi_height_ = msg->height;
+      right_camera_settings.do_rectify_ = true;
+    }
+    else
+    {
+      // Zeros mean the full resolution was captured.
+      right_camera_settings.roi_x_offset_ = 0;
+      right_camera_settings.roi_y_offset_ = 0;
+      right_camera_settings.roi_height_ = 0;
+      right_camera_settings.roi_width_ = 0;
+      right_camera_settings.do_rectify_ = false;  // Set to false if the whole image is captured.
+    }
+    spinnaker_right_.setROI(right_camera_settings.roi_x_offset_,
+			   right_camera_settings.roi_y_offset_,
+			   right_camera_settings.roi_width_,
+			   right_camera_settings.roi_height_);
   }
 
   /* Class Fields */
@@ -1191,19 +1244,24 @@ private:
   double diag_pub_rate_;
   std::unique_ptr<DiagnosticsManager> diag_man;
 
-  double gain_;
-  uint16_t wb_blue_;
-  uint16_t wb_red_;
+  struct CameraSettings{
+    double gain_;
+    uint16_t wb_blue_;
+    uint16_t wb_red_;
 
-  // Parameters for cameraInfo
-  size_t binning_x_;     ///< Camera Info pixel binning along the image x axis.
-  size_t binning_y_;     ///< Camera Info pixel binning along the image y axis.
-  size_t roi_x_offset_;  ///< Camera Info ROI x offset
-  size_t roi_y_offset_;  ///< Camera Info ROI y offset
-  size_t roi_height_;    ///< Camera Info ROI height
-  size_t roi_width_;     ///< Camera Info ROI width
-  bool do_rectify_;  ///< Whether or not to rectify as if part of an image.  Set to false if whole image, and true if in
-                     /// ROI mode.
+    // Parameters for cameraInfo
+    size_t binning_x_;     ///< Camera Info pixel binning along the image x axis.
+    size_t binning_y_;     ///< Camera Info pixel binning along the image y axis.
+    size_t roi_x_offset_;  ///< Camera Info ROI x offset
+    size_t roi_y_offset_;  ///< Camera Info ROI y offset
+    size_t roi_height_;    ///< Camera Info ROI height
+    size_t roi_width_;     ///< Camera Info ROI width
+    bool do_rectify_;  ///< Whether or not to rectify as if part of an image.  Set to false if whole image, and true if in
+		       /// ROI mode.
+  };
+
+  CameraSettings left_camera_settings;
+  CameraSettings right_camera_settings;
 
   // For GigE cameras:
   /// If true, GigE packet size is automatically determined, otherwise packet_size_ is used:
