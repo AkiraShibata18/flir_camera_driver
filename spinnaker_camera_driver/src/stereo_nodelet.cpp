@@ -398,8 +398,8 @@ private:
     ros::NodeHandle& nh = getMTNodeHandle();
     ros::NodeHandle& pnh = getMTPrivateNodeHandle();
 
-    ros::NodeHandle left_pnh (nh, "left");
-    ros::NodeHandle right_pnh (nh, "right");
+    ros::NodeHandle left_pnh(nh, "left");
+    ros::NodeHandle right_pnh(nh, "right");
 
     // Get a serial number through ros
     int serial_left = 0;
@@ -604,7 +604,6 @@ private:
     diag_man_right->addDiagnostic("PowerSupplyCurrent", true, std::make_pair(0.4f, 0.6f), 0.3f, 1.0f);
     diag_man_right->addDiagnostic<int>("DeviceUptime");
     diag_man_right->addDiagnostic<int>("U3VMessageChannelID");
-
   }
 
   /**
@@ -815,7 +814,7 @@ private:
 
             // Subscribe to gain and white balance changes
             {
-	      ros::NodeHandle left_pnh (getMTNodeHandle(), "left");
+              ros::NodeHandle left_pnh(getMTNodeHandle(), "left");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
               sub_left_ =
                   left_pnh.subscribe("image_exposure_sequence", 1,
@@ -954,7 +953,7 @@ private:
 
             // Subscribe to gain and white balance changes
             {
-	      ros::NodeHandle right_pnh (getMTNodeHandle(), "right");
+              ros::NodeHandle right_pnh(getMTNodeHandle(), "right");
               std::lock_guard<std::mutex> scopedLock(connect_mutex_);
               sub_right_ =
                   right_pnh.subscribe("image_exposure_sequence", 1,
@@ -1203,9 +1202,9 @@ private:
       left_camera_settings.do_rectify_ = false;  // Set to false if the whole image is captured.
     }
     spinnaker_left_.setROI(left_camera_settings.roi_x_offset_,
-			   left_camera_settings.roi_y_offset_,
-			   left_camera_settings.roi_width_,
-			   left_camera_settings.roi_height_);
+                           left_camera_settings.roi_y_offset_,
+                           left_camera_settings.roi_width_,
+                           left_camera_settings.roi_height_);
   }
 
   void rightRoiCallback(const sensor_msgs::RegionOfInterest::ConstPtr &msg)
@@ -1230,9 +1229,9 @@ private:
       right_camera_settings.do_rectify_ = false;  // Set to false if the whole image is captured.
     }
     spinnaker_right_.setROI(right_camera_settings.roi_x_offset_,
-			   right_camera_settings.roi_y_offset_,
-			   right_camera_settings.roi_width_,
-			   right_camera_settings.roi_height_);
+                           right_camera_settings.roi_y_offset_,
+                           right_camera_settings.roi_width_,
+                           right_camera_settings.roi_height_);
   }
 
   /* Class Fields */
@@ -1316,7 +1315,7 @@ private:
     size_t roi_height_;    ///< Camera Info ROI height
     size_t roi_width_;     ///< Camera Info ROI width
     bool do_rectify_;  ///< Whether or not to rectify as if part of an image.  Set to false if whole image, and true if in
-		       /// ROI mode.
+                       /// ROI mode.
   };
 
   CameraSettings left_camera_settings;
