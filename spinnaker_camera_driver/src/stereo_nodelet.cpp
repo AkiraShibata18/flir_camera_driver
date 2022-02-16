@@ -335,21 +335,23 @@ private:
 
     // Get a serial number through ros
     int serial_left = 0;
+    int serial_right = 0;
 
     pnh.param<bool>("reset_on_start", reset_on_start_, false);
     pnh.param<bool>("shutdown_on_error", shutdown_on_error_, false);
     pnh.param<bool>("use_device_timestamp", use_device_timestamp_, false);
 
+    // set left camera serial number
     XmlRpc::XmlRpcValue serial_xmlrpc_left;
-    pnh.getParam("serial", serial_xmlrpc_left);
+    pnh.getParam("serial_left", serial_xmlrpc_left);
     if (serial_xmlrpc_left.getType() == XmlRpc::XmlRpcValue::TypeInt)
     {
-      pnh.param<int>("serial", serial_left, 0);
+      pnh.param<int>("serial_left", serial_left, 0);
     }
     else if (serial_xmlrpc_left.getType() == XmlRpc::XmlRpcValue::TypeString)
     {
       std::string serial_str_left;
-      pnh.param<std::string>("serial", serial_str_left, "0");
+      pnh.param<std::string>("serial_left", serial_str_left, "0");
       std::istringstream(serial_str_left) >> serial_left;
     }
     else
@@ -359,8 +361,8 @@ private:
     }
 
     std::string camera_serial_path_left;
-    pnh.param<std::string>("camera_serial_path", camera_serial_path_left, "");
-    NODELET_DEBUG_ONCE("Camera serial path %s", camera_serial_path_left.c_str());
+    pnh.param<std::string>("camera_serial_path_left", camera_serial_path_left, "");
+    NODELET_DEBUG_ONCE("Camera serial path left %s", camera_serial_path_left.c_str());
     // If serial has been provided directly as a param, ignore the path
     // to read in the serial from.
     while (serial_left == 0 && !camera_serial_path_left.empty())
@@ -373,9 +375,47 @@ private:
       }
     }
 
-    NODELET_DEBUG_ONCE("Using camera serial %d", serial_left);
+    NODELET_DEBUG_ONCE("Using left camera serial %d", serial_left);
 
     spinnaker_left_.setDesiredCamera((uint32_t)serial_left);
+
+    // set right camera serial number
+    XmlRpc::XmlRpcValue serial_xmlrpc_right;
+    pnh.getParam("serial_right", serial_xmlrpc_right);
+    if (serial_xmlrpc_right.getType() == XmlRpc::XmlRpcValue::TypeInt)
+    {
+      pnh.param<int>("serial_right", serial_right, 0);
+    }
+    else if (serial_xmlrpc_right.getType() == XmlRpc::XmlRpcValue::TypeString)
+    {
+      std::string serial_str_right;
+      pnh.param<std::string>("serial_right", serial_str_right, "0");
+      std::istringstream(serial_str_right) >> serial_right;
+    }
+    else
+    {
+      NODELET_DEBUG_ONCE("Serial XMLRPC type.");
+      serial_right = 0;
+    }
+
+    std::string camera_serial_path_right;
+    pnh.param<std::string>("camera_serial_path_right", camera_serial_path_right, "");
+    NODELET_DEBUG_ONCE("Camera serial path right %s", camera_serial_path_right.c_str());
+    // If serial has been provided directly as a param, ignore the path
+    // to read in the serial from.
+    while (serial_right == 0 && !camera_serial_path_right.empty())
+    {
+      serial_right = readSerialAsHexFromFile(camera_serial_path_right);
+      if (serial_right == 0)
+      {
+        NODELET_WARN_ONCE("Waiting for camera serial path to become available");
+        ros::Duration(1.0).sleep();  // Sleep for 1 second, wait for serial device path to become available
+      }
+    }
+
+    NODELET_DEBUG_ONCE("Using camera serial %d", serial_right);
+
+    spinnaker_right_.setDesiredCamera((uint32_t)serial_right);
 
     // Get GigE camera parameters:
     pnh.param<int>("packet_size", packet_size_, 1400);
@@ -408,6 +448,9 @@ private:
     std::stringstream cinfo_name_left;
     cinfo_name_left << serial_left;
     cinfo_left_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_left.str(), camera_info_url));
+    std::stringstream cinfo_name_right;
+    cinfo_name_right << serial_right;
+    cinfo_right_.reset(new camera_info_manager::CameraInfoManager(nh, cinfo_name_right.str(), camera_info_url));
 
     // initialize connectCb flag
     is_left_connected_ = false;
@@ -528,8 +571,10 @@ private:
       SHUTDOWN,
     };
 
-    State state = DISCONNECTED;
-    State previous_state = NONE;
+    State left_state = DISCONNECTED;
+    State right_state = DISCONNECTED;
+    State previous_left_state = NONE;
+    State previous_right_state = NONE;
 
     if (reset_on_start_)
     {
@@ -566,11 +611,14 @@ private:
 
     while (!boost::this_thread::interruption_requested())  // Block until we need to stop this thread.
     {
-      bool state_changed = state != previous_state;
+      bool left_state_changed = left_state != previous_left_state;
+      bool right_state_changed = right_state != previous_right_state;
 
-      previous_state = state;
+      previous_left_state = left_state;
+      previous_right_state = right_state;
 
-      switch (state)
+      // left state
+      switch (left_state)
       {
         case SHUTDOWN:
           ros::shutdown();
@@ -592,16 +640,16 @@ private:
             spinnaker_left_.stop();
             NODELET_DEBUG_ONCE("Stopped camera.");
 
-            state = STOPPED;
+            left_state = STOPPED;
           }
           catch (std::runtime_error& e)
           {
-            if (state_changed)
+            if (left_state_changed)
             {
               NODELET_ERROR("Failed to stop with error: %s", e.what());
               ros::Duration(1.0).sleep();  // sleep for one second each time
             }
-            state = ERROR;
+            left_state = ERROR;
           }
 
           break;
@@ -614,16 +662,16 @@ private:
             spinnaker_left_.disconnect();
             NODELET_DEBUG("Disconnected from camera.");
 
-            state = DISCONNECTED;
+            left_state = DISCONNECTED;
           }
           catch (std::runtime_error& e)
           {
-            if (state_changed)
+            if (left_state_changed)
             {
               NODELET_ERROR("Failed to disconnect with error: %s", e.what());
               ros::Duration(1.0).sleep();  // sleep for one second each time
             }
-            state = ERROR;
+            left_state = ERROR;
           }
 
           break;
@@ -665,16 +713,16 @@ private:
                                               &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::roiCallback, this);
             }
 
-            state = CONNECTED;
+            left_state = CONNECTED;
           }
           catch (const std::runtime_error& e)
           {
-            if (state_changed)
+            if (left_state_changed)
             {
               NODELET_ERROR("Failed to connect with error: %s", e.what());
               ros::Duration(1.0).sleep();  // sleep for one second each time
             }
-            state = ERROR;
+            left_state = ERROR;
           }
 
           break;
@@ -687,111 +735,288 @@ private:
             NODELET_DEBUG("Started camera.");
             NODELET_DEBUG("Attention: if nothing subscribes to the camera topic, the camera_info is not published "
                           "on the correspondent topic.");
-            state = STARTED;
+            left_state = STARTED;
           }
           catch (std::runtime_error& e)
           {
-            if (state_changed)
+            if (left_state_changed)
             {
               NODELET_ERROR("Failed to start with error: %s", e.what());
               ros::Duration(1.0).sleep();  // sleep for one second each time
             }
-            state = ERROR;
+            left_state = ERROR;
           }
 
           break;
         case STARTED:
+          NODELET_DEBUG("left camera started.");
+          break;
+        default:
+          NODELET_ERROR("Unknown left camera state %d!", left_state);
+      }
+
+      // right state
+      switch (right_state)
+      {
+        case SHUTDOWN:
+          ros::shutdown();
+          break;
+        case ERROR:
+// Generally there's no need to stop before disconnecting after an
+// error. Indeed, stop will usually fail.
+// #if STOP_ON_ERROR
+          // Try stopping the camera
+          {
+            std::lock_guard<std::mutex> scopedLock(connect_mutex_);
+            sub_.shutdown();
+            sub_roi_.shutdown();
+          }
+
           try
           {
-            wfov_camera_msgs::WFOVImagePtr wfov_image(new wfov_camera_msgs::WFOVImage);
-            // Get the image from the camera library
-            NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_left_.getSerial());
-            spinnaker_left_.grabImage(&wfov_image->image, frame_id_, use_device_timestamp_);
+            NODELET_DEBUG_ONCE("Stopping camera.");
+            spinnaker_right_.stop();
+            NODELET_DEBUG_ONCE("Stopped camera.");
 
-            // Set other values
-            wfov_image->header.frame_id = frame_id_;
-
-            wfov_image->gain = gain_;
-            wfov_image->white_balance_blue = wb_blue_;
-            wfov_image->white_balance_red = wb_red_;
-
-            // wfov_image->temperature = spinnaker_left_.getCameraTemperature();
-
-            if (use_device_timestamp_)
-            {
-              wfov_image->header.stamp = wfov_image->image.header.stamp;
-            }
-            else
-            {
-              const ros::Time time = ros::Time::now();
-              wfov_image->header.stamp = time;
-              wfov_image->image.header.stamp = time;
-            }
-
-            // Set the CameraInfo message
-            ci_left_.reset(new sensor_msgs::CameraInfo(cinfo_left_->getCameraInfo()));
-            ci_left_->header.stamp = wfov_image->image.header.stamp;
-            ci_left_->header.frame_id = wfov_image->header.frame_id;
-            // The width/height in sensor_msgs/CameraInfo is full camera resolution in pixels,
-            // which is unchanged regardless of binning settings.
-            ci_left_->width = ci_left_->width == 0 ? spinnaker_left_.getWidthMax() * binning_x_ : ci_left_->width;
-            ci_left_->height = ci_left_->height == 0 ? spinnaker_left_.getHeightMax() * binning_y_ : ci_left_->height;
-            // The height, width, distortion model, and parameters are all filled in by camera info manager.
-            ci_left_->binning_x = binning_x_;
-            ci_left_->binning_y = binning_y_;
-            // NOTE: The ROI offset/size in Spinnaker driver is the values, given in binned image coordinates,
-            //       in sensor_msgs/CameraInfo, on the other hand, given in un-binned image coordinates.
-            ci_left_->roi.x_offset = roi_x_offset_ * binning_x_;
-            ci_left_->roi.y_offset = roi_y_offset_ * binning_y_;
-            ci_left_->roi.height = roi_height_ * binning_y_;
-            ci_left_->roi.width = roi_width_ * binning_x_;
-            ci_left_->roi.do_rectify = do_rectify_;
-
-            wfov_image->info = *ci_left_;
-
-            // Publish the full message
-            pub_left_->publish(wfov_image);
-
-            // Publish the message using standard image transport
-            if (it_pub_left_.getNumSubscribers() > 0)
-            {
-              sensor_msgs::ImagePtr image(new sensor_msgs::Image(wfov_image->image));
-              it_pub_left_.publish(image, ci_left_);
-            }
-          }
-          catch (CameraTimeoutException& e)
-          {
-            NODELET_WARN("%s", e.what());
-          }
-          catch (const IncompleteImageException& e)
-          {
-            if (config_.ignore_incomplete_image)
-            {
-              NODELET_WARN("%s", e.what());
-            }
-            else
-            {
-              NODELET_ERROR("%s", e.what());
-              state = ERROR;
-            }
+            right_state = STOPPED;
           }
           catch (std::runtime_error& e)
           {
-            NODELET_ERROR("%s", e.what());
-            if (shutdown_on_error_)
+            if (right_state_changed)
             {
-              NODELET_ERROR("Shutting down this process");
-              state = SHUTDOWN;
+              NODELET_ERROR("Failed to stop with error: %s", e.what());
+              ros::Duration(1.0).sleep();  // sleep for one second each time
             }
-            else
-            {
-              state = ERROR;
-            }
+            right_state = ERROR;
           }
 
           break;
+// #endif
+        case STOPPED:
+          // Try disconnecting from the camera
+          try
+          {
+            NODELET_DEBUG("Disconnecting from camera.");
+            spinnaker_right_.disconnect();
+            NODELET_DEBUG("Disconnected from camera.");
+
+            right_state = DISCONNECTED;
+          }
+          catch (std::runtime_error& e)
+          {
+            if (right_state_changed)
+            {
+              NODELET_ERROR("Failed to disconnect with error: %s", e.what());
+              ros::Duration(1.0).sleep();  // sleep for one second each time
+            }
+            right_state = ERROR;
+          }
+
+          break;
+        case DISCONNECTED:
+          // Try connecting to the camera
+          try
+          {
+            NODELET_DEBUG("Connecting to camera.");
+
+            spinnaker_right_.connect();
+
+            NODELET_DEBUG("Connected to camera.");
+
+            // Set last configuration, forcing the reconfigure level to stop
+            paramCallback(config_, SpinnakerCamera::LEVEL_RECONFIGURE_STOP);
+
+            // Set the timeout for grabbing images.
+            try
+            {
+              double timeout;
+              getMTPrivateNodeHandle().param("timeout", timeout, 1.0);
+
+              NODELET_DEBUG_ONCE("Setting timeout to: %f.", timeout);
+              spinnaker_right_.setTimeout(timeout);
+            }
+            catch (const std::runtime_error& e)
+            {
+              NODELET_ERROR("%s", e.what());
+            }
+
+            // Subscribe to gain and white balance changes
+            {
+              std::lock_guard<std::mutex> scopedLock(connect_mutex_);
+              sub_ =
+                  getMTNodeHandle().subscribe("image_exposure_sequence", 1,
+                                              &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::gainWBCallback, this);
+              sub_roi_ =
+                  getMTNodeHandle().subscribe("set_roi", 1,
+                                              &spinnaker_camera_driver::SpinnakerStereoCameraNodelet::roiCallback, this);
+            }
+
+            right_state = CONNECTED;
+          }
+          catch (const std::runtime_error& e)
+          {
+            if (right_state_changed)
+            {
+              NODELET_ERROR("Failed to connect with error: %s", e.what());
+              ros::Duration(1.0).sleep();  // sleep for one second each time
+            }
+            right_state = ERROR;
+          }
+
+          break;
+        case CONNECTED:
+          // Try starting the camera
+          try
+          {
+            NODELET_DEBUG("Starting camera.");
+            spinnaker_right_.start();
+            NODELET_DEBUG("Started camera.");
+            NODELET_DEBUG("Attention: if nothing subscribes to the camera topic, the camera_info is not published "
+                          "on the correspondent topic.");
+            right_state = STARTED;
+          }
+          catch (std::runtime_error& e)
+          {
+            if (right_state_changed)
+            {
+              NODELET_ERROR("Failed to start with error: %s", e.what());
+              ros::Duration(1.0).sleep();  // sleep for one second each time
+            }
+            right_state = ERROR;
+          }
+
+          break;
+        case STARTED:
+          // only publish images if both left and right state are STARTED
+          if (left_state == STARTED)
+          {
+            try
+            {
+              wfov_camera_msgs::WFOVImagePtr left_wfov_image(new wfov_camera_msgs::WFOVImage);
+              wfov_camera_msgs::WFOVImagePtr right_wfov_image(new wfov_camera_msgs::WFOVImage);
+              // Get the image from the camera library
+              NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_left_.getSerial());
+              NODELET_DEBUG_ONCE("Starting a new grab from camera with serial {%d}.", spinnaker_right_.getSerial());
+              spinnaker_left_.grabImage(&left_wfov_image->image, frame_id_, use_device_timestamp_);
+              spinnaker_right_.grabImage(&right_wfov_image->image, frame_id_, use_device_timestamp_);
+
+              // Set other values
+              left_wfov_image->header.frame_id = frame_id_;
+              right_wfov_image->header.frame_id = frame_id_;
+
+              left_wfov_image->gain = gain_;
+              right_wfov_image->gain = gain_;
+              left_wfov_image->white_balance_blue = wb_blue_;
+              right_wfov_image->white_balance_blue = wb_blue_;
+              left_wfov_image->white_balance_red = wb_red_;
+              right_wfov_image->white_balance_red = wb_red_;
+
+              // wfov_image->temperature = spinnaker_right_.getCameraTemperature();
+
+              if (use_device_timestamp_)
+              {
+                left_wfov_image->header.stamp = left_wfov_image->image.header.stamp;
+                right_wfov_image->header.stamp = right_wfov_image->image.header.stamp;
+              }
+              else
+              {
+                const ros::Time time = ros::Time::now();
+                left_wfov_image->header.stamp = time;
+                left_wfov_image->image.header.stamp = time;
+                right_wfov_image->header.stamp = time;
+                right_wfov_image->image.header.stamp = time;
+              }
+
+              // Set the CameraInfo message
+              ci_left_.reset(new sensor_msgs::CameraInfo(cinfo_left_->getCameraInfo()));
+              ci_left_->header.stamp = left_wfov_image->image.header.stamp;
+              ci_left_->header.frame_id = left_wfov_image->header.frame_id;
+              // The width/height in sensor_msgs/CameraInfo is full camera resolution in pixels,
+              // which is unchanged regardless of binning settings.
+              ci_left_->width = ci_left_->width == 0 ? spinnaker_left_.getWidthMax() * binning_x_ : ci_left_->width;
+              ci_left_->height = ci_left_->height == 0 ? spinnaker_left_.getHeightMax() * binning_y_ : ci_left_->height;
+              // The height, width, distortion model, and parameters are all filled in by camera info manager.
+              ci_left_->binning_x = binning_x_;
+              ci_left_->binning_y = binning_y_;
+              // NOTE: The ROI offset/size in Spinnaker driver is the values, given in binned image coordinates,
+              //       in sensor_msgs/CameraInfo, on the other hand, given in un-binned image coordinates.
+              ci_left_->roi.x_offset = roi_x_offset_ * binning_x_;
+              ci_left_->roi.y_offset = roi_y_offset_ * binning_y_;
+              ci_left_->roi.height = roi_height_ * binning_y_;
+              ci_left_->roi.width = roi_width_ * binning_x_;
+              ci_left_->roi.do_rectify = do_rectify_;
+
+              // Set the CameraInfo message
+              ci_right_.reset(new sensor_msgs::CameraInfo(cinfo_right_->getCameraInfo()));
+              ci_right_->header.stamp = right_wfov_image->image.header.stamp;
+              ci_right_->header.frame_id = right_wfov_image->header.frame_id;
+              // The width/height in sensor_msgs/CameraInfo is full camera resolution in pixels,
+              // which is unchanged regardless of binning settings.
+              ci_right_->width = ci_right_->width == 0 ? spinnaker_right_.getWidthMax() * binning_x_ : ci_right_->width;
+              ci_right_->height = ci_right_->height == 0 ? spinnaker_right_.getHeightMax() * binning_y_ : ci_right_->height;
+              // The height, width, distortion model, and parameters are all filled in by camera info manager.
+              ci_right_->binning_x = binning_x_;
+              ci_right_->binning_y = binning_y_;
+              // NOTE: The ROI offset/size in Spinnaker driver is the values, given in binned image coordinates,
+              //       in sensor_msgs/CameraInfo, on the other hand, given in un-binned image coordinates.
+              ci_right_->roi.x_offset = roi_x_offset_ * binning_x_;
+              ci_right_->roi.y_offset = roi_y_offset_ * binning_y_;
+              ci_right_->roi.height = roi_height_ * binning_y_;
+              ci_right_->roi.width = roi_width_ * binning_x_;
+              ci_right_->roi.do_rectify = do_rectify_;
+
+              left_wfov_image->info = *ci_left_;
+              right_wfov_image->info = *ci_right_;
+
+              // Publish the full message
+              pub_left_->publish(left_wfov_image);
+              pub_right_->publish(right_wfov_image);
+
+              // Publish the message using standard image transport
+              if (it_pub_left_.getNumSubscribers() > 0 && it_pub_right_.getNumSubscribers() > 0)
+              {
+                sensor_msgs::ImagePtr left_image(new sensor_msgs::Image(left_wfov_image->image));
+                sensor_msgs::ImagePtr right_image(new sensor_msgs::Image(right_wfov_image->image));
+                it_pub_left_.publish(left_image, ci_left_);
+                it_pub_right_.publish(right_image, ci_right_);
+              }
+            }
+            catch (CameraTimeoutException& e)
+            {
+              NODELET_WARN("%s", e.what());
+            }
+            catch (const IncompleteImageException& e)
+            {
+              if (config_.ignore_incomplete_image)
+              {
+                NODELET_WARN("%s", e.what());
+              }
+              else
+              {
+                NODELET_ERROR("%s", e.what());
+                left_state = ERROR;
+                right_state = ERROR;
+              }
+            }
+            catch (std::runtime_error& e)
+            {
+              NODELET_ERROR("%s", e.what());
+              if (shutdown_on_error_)
+              {
+                NODELET_ERROR("Shutting down this process");
+                left_state = SHUTDOWN;
+                right_state = SHUTDOWN;
+              }
+              else
+              {
+                left_state = SHUTDOWN;
+                right_state = SHUTDOWN;
+              }
+            }
+          }
+          break;
         default:
-          NODELET_ERROR("Unknown camera state %d!", state);
+          NODELET_ERROR("Unknown right camera state %d!", right_state);
       }
 
       // Update diagnostics
