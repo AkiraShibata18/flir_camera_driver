@@ -860,7 +860,7 @@ private:
 
           break;
         case STARTED:
-          NODELET_DEBUG("left camera started.");
+          NODELET_DEBUG_ONCE("left camera started.");
           break;
         default:
           NODELET_ERROR("Unknown left camera state %d!", left_state);
@@ -1027,8 +1027,10 @@ private:
 
               if (use_device_timestamp_)
               {
+                // use left camera timestamp
                 left_wfov_image->header.stamp = left_wfov_image->image.header.stamp;
-                right_wfov_image->header.stamp = right_wfov_image->image.header.stamp;
+                right_wfov_image->header.stamp = left_wfov_image->image.header.stamp;
+                right_wfov_image->image.header.stamp = left_wfov_image->image.header.stamp;
               }
               else
               {
@@ -1085,7 +1087,7 @@ private:
               pub_right_->publish(right_wfov_image);
 
               // Publish the message using standard image transport
-              if (it_pub_left_.getNumSubscribers() > 0 && it_pub_right_.getNumSubscribers() > 0)
+              if (it_pub_left_.getNumSubscribers() > 0 || it_pub_right_.getNumSubscribers() > 0)
               {
                 sensor_msgs::ImagePtr left_image(new sensor_msgs::Image(left_wfov_image->image));
                 sensor_msgs::ImagePtr right_image(new sensor_msgs::Image(right_wfov_image->image));
