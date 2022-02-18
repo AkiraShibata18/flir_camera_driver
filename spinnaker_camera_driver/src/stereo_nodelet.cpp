@@ -272,7 +272,6 @@ private:
   void leftConnectCb()
   {
     is_left_connected_ = true;
-    NODELET_INFO_STREAM("leftConnectCb!! flag: " << is_left_connected_);
     if (!pubThread_ && is_right_connected_)  // We need to connect
     {
       NODELET_INFO_STREAM("leftConnectCb thread started");
@@ -336,7 +335,6 @@ private:
   void rightConnectCb()
   {
     is_right_connected_ = true;
-    NODELET_INFO_STREAM("rightConnectCb!! flag: " << is_right_connected_);
     if (!pubThread_ && is_left_connected_)  // We need to connect
     {
       // Start the thread to loop through and publish messages
