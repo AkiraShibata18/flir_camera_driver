@@ -9,6 +9,7 @@ This software is released under a BSD license:
 
 Copyright (c) 2012, Carnegie Mellon University. All rights reserved.
 Copyright (c) 2018, Clearpath Robotics, Inc., All rights reserved.
+Copyright (c) 2021, GITAI Japan, Inc., All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
 following conditions are met:
@@ -44,6 +45,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
    @author Teyvonia Thomas
    @date August 28, 2017
    @brief ROS nodelet for the Point Grey Chameleon Camera - Updated to use Spinnaker driver insteady of Flycapture
+*/
+
+/**
+   @file stereo_nodelet.cpp
+   @author Akira Shibata
+   @date February 15, 2021
+   @brief ROS nodelet for the Spinnaker driver to manage two cameras simultaniously as stereo camera
 */
 
 // ROS and associated nodelet interface and PLUGINLIB declaration header
