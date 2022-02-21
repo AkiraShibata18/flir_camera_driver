@@ -85,7 +85,7 @@ add_library(Diagnostics src/diagnostics.cpp)
 target_link_libraries(Diagnostics Camera SpinnakerCameraLib ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 add_dependencies(Diagnostics ${PROJECT_NAME}_gencfg)
 
-add_library(SpinnakerCameraNodelet src/nodelet.cpp)
+add_library(SpinnakerCameraNodelet src/nodelet.cpp src/stereo_nodelet.cpp)
 target_link_libraries(SpinnakerCameraNodelet Diagnostics SpinnakerCameraLib Camera Cm3 ${catkin_LIBRARIES} ${YAML_CPP_LIBRARIES})
 
 add_executable(spinnaker_camera_node src/node.cpp)
