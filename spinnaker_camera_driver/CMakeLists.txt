@@ -53,6 +53,7 @@ add_library(SpinnakerCameraLib src/SpinnakerCamera.cpp)
 # Include the Spinnaker Libs
 target_link_libraries(SpinnakerCameraLib
                       Camera
+                      Cm3
                       ${Spinnaker_LIBRARIES}
                       ${catkin_LIBRARIES}
                       ${YAML_CPP_LIBRARIES}
