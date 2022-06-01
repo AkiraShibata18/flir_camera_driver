@@ -139,6 +139,8 @@ void Camera::setNewConfiguration(SpinnakerConfig& config, const uint32_t& level)
     {
       setProperty(node_map_, "AutoExposureExposureTimeUpperLimit",
                   static_cast<float>(config.auto_exposure_time_upper_limit));
+      setProperty(node_map_, "AutoExposureExposureTimeLowerLimit",
+                  static_cast<float>(config.auto_exposure_time_lower_limit));
     }
     Spinnaker::GenApi::CFloatPtr ptrExposureTime = node_map_->GetNode("ExposureTime");
     config.exposure_time = ptrExposureTime->GetValue();
