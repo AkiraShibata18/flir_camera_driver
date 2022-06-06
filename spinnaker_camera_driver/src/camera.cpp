@@ -139,6 +139,8 @@ void Camera::setNewConfiguration(SpinnakerConfig& config, const uint32_t& level)
     {
       setProperty(node_map_, "AutoExposureExposureTimeUpperLimit",
                   static_cast<float>(config.auto_exposure_time_upper_limit));
+      setProperty(node_map_, "AutoExposureExposureTimeLowerLimit",
+                  static_cast<float>(config.auto_exposure_time_lower_limit));
     }
     Spinnaker::GenApi::CFloatPtr ptrExposureTime = node_map_->GetNode("ExposureTime");
     config.exposure_time = ptrExposureTime->GetValue();
@@ -321,6 +323,13 @@ void Camera::setNewConfiguration(SpinnakerConfig& config, const uint32_t& level)
     setProperty(node_map_, "CounterDelay", config.counter_delay);
     setProperty(node_map_, "CounterTriggerSource", config.counter_trigger_source);
     setProperty(node_map_, "CounterTriggerActivation", config.counter_trigger_activation);
+
+    setProperty(node_map_, "AutoAlgorithmSelector", config.auto_algorithm_selector);
+    setProperty(node_map_, "AasRoiEnable", config.roi_enable);
+    setProperty(node_map_, "AasRoiOffsetX", config.roi_offset_x);
+    setProperty(node_map_, "AasRoiOffsetY", config.roi_offset_y);
+    setProperty(node_map_, "AasRoiWidth", config.roi_width);
+    setProperty(node_map_, "AasRoiHeight", config.roi_height);
   }
   catch (const Spinnaker::Exception& e)
   {
